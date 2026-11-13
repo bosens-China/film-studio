@@ -1,5 +1,16 @@
-import { Download, ImagePlus, Images, ShieldCheck, X } from "lucide-react";
+import {
+  ChevronDown,
+  Download,
+  ImagePlus,
+  PanelLeft,
+  PanelRight,
+  Settings,
+  X,
+} from "lucide-react";
+import { AppLogo } from "@/components/AppLogo";
 import { Button } from "@/components/ui/button";
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu";
+import type { PanelSide } from "@/stores/settings";
 
 export function WorkbenchHeader({
   isNotFound,
@@ -13,6 +24,8 @@ export function WorkbenchHeader({
   onExportVariants,
   variantCount,
   onDismissError,
+  onOpenSettings,
+  panels,
 }: {
   isNotFound: boolean;
   busy: string;
@@ -20,63 +33,116 @@ export function WorkbenchHeader({
   exportDisabled: boolean;
   exportLabel: string;
   onHome: () => void;
-  onAddPhotos: () => void;
+  onAddPhotos?: () => void;
   onExport: () => void;
   onExportVariants?: () => void;
   variantCount: number;
   onDismissError: () => void;
+  onOpenSettings: () => void;
+  panels?: {
+    left: boolean;
+    right: boolean;
+    onToggle: (side: PanelSide) => void;
+  };
 }) {
   return (
     <>
-      <header className="flex h-13 shrink-0 items-center justify-between border-b border-border bg-sidebar px-4">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={onHome}
-            className="flex items-center gap-3 text-left transition hover:opacity-85"
-          >
-            <div className="flex size-7 items-center justify-center rounded-md border border-border bg-secondary text-foreground">
-              <Images size={15} />
-            </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-sm font-semibold tracking-tight">
-                拾光滤镜
-              </span>
-              <span className="text-[10px] font-medium tracking-widest text-muted-foreground uppercase">
-                FILM STUDIO
-              </span>
-            </div>
-          </button>
-          <div className="ml-2 hidden items-center gap-1.5 rounded-full border border-border bg-background/60 px-2.5 py-0.5 text-xs text-muted-foreground sm:flex">
-            <ShieldCheck size={12} className="text-emerald-400" />
-            <span>照片仅在本地处理 · 刷新即清空</span>
-          </div>
-        </div>
+      <header className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-sidebar px-4">
+        <button
+          type="button"
+          onClick={onHome}
+          className="flex items-center gap-2.5 text-left transition hover:opacity-85"
+        >
+          <AppLogo size={20} className="shrink-0" />
+          <span className="text-sm font-semibold tracking-tight">拾光滤镜</span>
+        </button>
 
-        {!isNotFound && (
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={onAddPhotos}>
-              <ImagePlus size={14} /> 添加照片
-            </Button>
-            {onExportVariants && (
+        <div className="flex items-center gap-2">
+          {!isNotFound && (
+            <>
+              {onAddPhotos && (
+                <Button variant="ghost" size="sm" onClick={onAddPhotos}>
+                  <ImagePlus size={14} /> 添加照片
+                </Button>
+              )}
+              <div className="flex items-center">
+                <Button
+                  size="sm"
+                  disabled={exportDisabled}
+                  onClick={onExport}
+                  className={onExportVariants ? "rounded-r-none" : undefined}
+                >
+                  <Download size={14} />
+                  {exportLabel}
+                </Button>
+                {onExportVariants && (
+                  <Menu>
+                    <MenuTrigger
+                      render={
+                        <Button
+                          size="icon-sm"
+                          aria-label="更多导出方式"
+                          disabled={!!busy || variantCount === 0}
+                          className="rounded-l-none border-l border-primary-foreground/20"
+                        />
+                      }
+                    >
+                      <ChevronDown size={14} />
+                    </MenuTrigger>
+                    <MenuContent>
+                      <MenuItem onClick={onExportVariants}>
+                        导出全部对比滤镜（ZIP · {variantCount} 张）
+                      </MenuItem>
+                    </MenuContent>
+                  </Menu>
+                )}
+              </div>
+              <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+            </>
+          )}
+          {panels && (
+            <>
               <Button
-                variant="outline"
-                size="sm"
-                disabled={!!busy || variantCount === 0}
-                onClick={onExportVariants}
+                variant="ghost"
+                size="icon-sm"
+                aria-label="分组栏"
+                aria-pressed={panels.left}
+                title={`${panels.left ? "隐藏" : "显示"}分组栏（[）`}
+                onClick={() => panels.onToggle("left")}
+                className={
+                  panels.left ? "text-foreground" : "text-muted-foreground"
+                }
               >
-                导出全部滤镜 ZIP ({variantCount})
+                <PanelLeft size={15} />
               </Button>
-            )}
-            <Button size="sm" disabled={exportDisabled} onClick={onExport}>
-              <Download size={14} />
-              {exportLabel}
-            </Button>
-          </div>
-        )}
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="滤镜栏"
+                aria-pressed={panels.right}
+                title={`${panels.right ? "隐藏" : "显示"}滤镜栏（]）`}
+                onClick={() => panels.onToggle("right")}
+                className={
+                  panels.right ? "text-foreground" : "text-muted-foreground"
+                }
+              >
+                <PanelRight size={15} />
+              </Button>
+            </>
+          )}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="设置"
+            title="设置"
+            onClick={onOpenSettings}
+            className="text-muted-foreground"
+          >
+            <Settings size={15} />
+          </Button>
+        </div>
       </header>
 
-      {/* Alert & Status Banners */}
       {error && (
         <div
           role="alert"

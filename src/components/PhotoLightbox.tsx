@@ -21,17 +21,16 @@ import { Slider } from "@/components/ui/slider";
 import { PhotoPreview } from "@/components/PhotoPreview";
 import { groupLabel, lutLabel } from "@/lib/lut-labels";
 import { luts, categories, nameOf } from "@/lib/luts";
+import type { Grade } from "@/lib/renderer";
 
 export function PhotoLightbox({
   file,
-  strength,
-  lightbox,
+  grade,
   onClose,
   onChangeLut,
 }: {
   file: File;
-  strength: number;
-  lightbox: { lut: string };
+  grade: Grade;
   onClose: () => void;
   onChangeLut: (lut: string) => void;
 }) {
@@ -99,14 +98,14 @@ export function PhotoLightbox({
               {/* 1. Filter Switcher (Custom UI Select) */}
               <div className="w-56">
                 <Select
-                  value={lightbox.lut}
+                  value={grade.lut}
                   onValueChange={(val) => onChangeLut(val ?? "")}
                 >
                   <SelectTrigger aria-label="弹窗滤镜切换" className="bg-card">
                     <SelectValue>{(val: string) => nameOf(val)}</SelectValue>
                   </SelectTrigger>
                   <SelectContent align="end">
-                    <SelectItem value="">原图</SelectItem>
+                    <SelectItem value="">无滤镜</SelectItem>
                     <SelectSeparator />
                     {categories.map((cat) => (
                       <SelectGroup key={cat}>
@@ -208,7 +207,7 @@ export function PhotoLightbox({
               >
                 <PhotoPreview
                   file={file}
-                  grade={{ lut: lightbox.lut, strength: strength }}
+                  grade={grade}
                   zoom={lightboxZoom}
                   pan={lightboxPan}
                   maxSide={2000}

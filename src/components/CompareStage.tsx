@@ -1,5 +1,5 @@
-import type { Dispatch, SetStateAction } from "react";
-import { ZoomIn } from "lucide-react";
+import type { Dispatch, PointerEvent, SetStateAction } from "react";
+import { Expand } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -15,8 +15,9 @@ import { PhotoPreview } from "@/components/PhotoPreview";
 import { PhotoFilmstrip } from "@/components/PhotoFilmstrip";
 import { SinglePhotoView } from "@/components/SinglePhotoView";
 import { CardViewControls } from "@/components/CardViewControls";
+import { PortraitBadge } from "@/components/PortraitBadge";
 import { groupLabel, lutLabel } from "@/lib/lut-labels";
-import { luts, categories, nameOf } from "@/lib/luts";
+import { luts, categories, gradeName, nameOf } from "@/lib/luts";
 import { original, type Grade } from "@/lib/renderer";
 import type { Photo, CompareMode } from "@/lib/workspace-types";
 import { defaultCardTransform, type useCardView } from "@/hooks/useCardView";
@@ -24,45 +25,38 @@ import { defaultCardTransform, type useCardView } from "@/hooks/useCardView";
 export function CompareStage({
   active,
   mode,
-  draft,
-  setDraft,
+  grade,
   candidates,
+  adoptedSlot,
   setCandidates,
-  activeCardKey,
   cardView,
   peekingOriginal,
-  setSideActiveIndex,
-  setGridActiveIndex,
-  setActiveSlot,
-  setDirty,
-  openLightboxForLut,
+  onAdoptLut,
+  openLightbox,
   openPhoto,
 }: {
   active: Photo;
   mode: CompareMode;
-  draft: Grade;
-  setDraft: Dispatch<SetStateAction<Grade>>;
+  grade: Grade;
   candidates: string[];
+  adoptedSlot: number;
   setCandidates: Dispatch<SetStateAction<string[]>>;
-  activeCardKey: string;
   cardView: ReturnType<typeof useCardView>;
   peekingOriginal: boolean;
-  setSideActiveIndex: Dispatch<SetStateAction<0 | 1>>;
-  setGridActiveIndex: Dispatch<SetStateAction<number>>;
-  setActiveSlot: Dispatch<SetStateAction<number>>;
-  setDirty: Dispatch<SetStateAction<boolean>>;
-  openLightboxForLut: (lut: string) => void;
+  onAdoptLut: (lut: string, slot: number) => void;
+  openLightbox: (grade: Grade) => void;
   openPhoto: (photo: Photo) => void;
 }) {
   const {
-    viewZoom,
     getCardTransform,
     updateCardTransform,
+    wheelZoomRef,
     startCardPan,
     moveCardPan,
     endCardPan,
     consumeDrag,
   } = cardView;
+  const showPortrait = grade.portrait && !!active.faces;
   return (
     <>
       <div
@@ -77,113 +71,92 @@ export function CompareStage({
         {mode === "single" ? (
           <SinglePhotoView
             file={active.file}
-            draft={draft}
+            grade={grade}
+            showPortrait={showPortrait}
             peekingOriginal={peekingOriginal}
             cardView={cardView}
-            openLightboxForLut={openLightboxForLut}
+            openLightbox={openLightbox}
           />
         ) : (
-          (mode === "side" ? ["", draft.lut] : ["", ...candidates]).map(
+          (mode === "side" ? ["", grade.lut] : ["", ...candidates]).map(
             (id, index) => {
               const slotIdx = index - 1;
               const cardKey = `${mode}-${index}`;
-              const isCardActive = cardKey === activeCardKey;
               const cardTransform = getCardTransform(cardKey);
-              const isAdopted = mode === "grid" && index > 0 && isCardActive;
+              const isEffect = index > 0;
               const cellGrade: Grade =
-                index === 0 || peekingOriginal
-                  ? original
-                  : mode === "side"
-                    ? draft
-                    : { lut: id, strength: draft.strength };
-              const cellTitle = index === 0 ? "原图" : nameOf(id);
-              const activateThisCard = () => {
-                if (mode === "side") {
-                  setSideActiveIndex(index as 0 | 1);
-                } else {
-                  setGridActiveIndex(index);
-                  if (slotIdx >= 0) {
-                    setActiveSlot(slotIdx);
-                  }
-                }
+                !isEffect || peekingOriginal ? original : { ...grade, lut: id };
+              const cellTitle = !isEffect
+                ? "原图"
+                : mode === "side"
+                  ? gradeName(grade)
+                  : nameOf(id);
+              const isGridSlot = mode === "grid" && isEffect;
+              const isAdopted =
+                isGridSlot &&
+                id !== "" &&
+                slotIdx === adoptedSlot &&
+                id === grade.lut;
+              const panHandlers = {
+                onPointerDown: (e: PointerEvent<HTMLElement>) =>
+                  startCardPan(cardKey, e),
+                onPointerMove: moveCardPan,
+                onPointerUp: endCardPan,
+                onPointerCancel: endCardPan,
               };
+              const preview = (
+                <PhotoPreview
+                  file={active.file}
+                  grade={cellGrade}
+                  zoom={cardTransform.zoom}
+                  pan={cardTransform.pan}
+                  maxSide={1200}
+                />
+              );
 
               return (
                 <div
-                  key={`${mode}-${index}`}
-                  className={`group flex min-h-0 flex-col overflow-hidden rounded-lg border bg-card transition-all ${
-                    isCardActive
-                      ? "border-foreground ring-1 ring-foreground"
-                      : "border-border"
+                  key={cardKey}
+                  className={`group flex min-h-0 flex-col overflow-hidden rounded-lg border bg-card transition-colors ${
+                    isAdopted
+                      ? "border-foreground/70"
+                      : isGridSlot
+                        ? "border-border hover:border-foreground/25"
+                        : "border-border"
                   }`}
                 >
-                  {/* Image Area - Click to activate; drag to pan active card; click zoom icon to open lightbox */}
-                  <div className="relative min-h-0 flex-1 overflow-hidden">
-                    {mode === "grid" && index > 0 ? (
+                  <div
+                    ref={wheelZoomRef(cardKey)}
+                    className="relative min-h-0 flex-1 overflow-hidden"
+                  >
+                    {isGridSlot ? (
                       <button
                         type="button"
-                        aria-label={`选择 ${nameOf(id)} 滤镜`}
-                        className={`h-full w-full ${
-                          isCardActive
-                            ? "cursor-grab active:cursor-grabbing"
-                            : "cursor-pointer active:cursor-grabbing"
-                        }`}
-                        onPointerDown={(e) =>
-                          startCardPan(cardKey, activateThisCard, e)
-                        }
-                        onPointerMove={moveCardPan}
-                        onPointerUp={endCardPan}
-                        onPointerCancel={endCardPan}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (consumeDrag()) return;
-                          activateThisCard();
-                          const nextGrade = { ...draft, lut: id };
-                          setDraft(nextGrade);
-                          setDirty(true);
+                        aria-label={`采用 ${cellTitle}`}
+                        aria-pressed={isAdopted}
+                        {...panHandlers}
+                        onClick={() => {
+                          if (!consumeDrag()) onAdoptLut(id, slotIdx);
                         }}
+                        title="点击采用此滤镜；滚轮缩放，拖动平移"
+                        className="h-full w-full cursor-grab active:cursor-grabbing"
                       >
-                        <PhotoPreview
-                          file={active.file}
-                          grade={cellGrade}
-                          zoom={viewZoom * cardTransform.zoom}
-                          pan={cardTransform.pan}
-                          maxSide={1200}
-                        />
+                        {preview}
                       </button>
                     ) : (
-                      <button
-                        type="button"
-                        aria-label={`激活 ${cellTitle} 视图`}
-                        onPointerDown={(e) =>
-                          startCardPan(cardKey, activateThisCard, e)
-                        }
-                        onPointerMove={moveCardPan}
-                        onPointerUp={endCardPan}
-                        onPointerCancel={endCardPan}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (consumeDrag()) return;
-                          activateThisCard();
-                        }}
-                        className={`h-full w-full ${
-                          isCardActive
-                            ? "cursor-grab active:cursor-grabbing"
-                            : "cursor-pointer active:cursor-grabbing"
-                        }`}
+                      <div
+                        role="group"
+                        aria-label={`${cellTitle} 预览`}
+                        {...panHandlers}
+                        title="滚轮缩放，拖动平移"
+                        className="h-full w-full cursor-grab active:cursor-grabbing"
                       >
-                        <PhotoPreview
-                          file={active.file}
-                          grade={cellGrade}
-                          zoom={viewZoom * cardTransform.zoom}
-                          pan={cardTransform.pan}
-                          maxSide={1200}
-                        />
-                      </button>
+                        {preview}
+                      </div>
                     )}
                     <CardViewControls
                       label={
-                        index === 0
+                        !isEffect
                           ? "原图卡片"
                           : mode === "side"
                             ? "效果卡片"
@@ -202,137 +175,76 @@ export function CompareStage({
                     />
                   </div>
 
-                  {/* Dedicated Bottom Bar Below Image (No Overlap!) */}
                   <div
-                    className="flex h-9 shrink-0 items-center justify-between gap-2 border-t border-border bg-sidebar/90 px-2.5 text-xs"
+                    className="flex h-9 shrink-0 items-center justify-between gap-2 border-t border-border px-2.5 text-xs"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    {mode === "grid" && index > 0 ? (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            activateThisCard();
-                            const nextGrade = { ...draft, lut: id };
-                            setDraft(nextGrade);
-                            setDirty(true);
+                    {isGridSlot ? (
+                      <div className="min-w-0 flex-1">
+                        <Select
+                          value={id}
+                          onValueChange={(val) => {
+                            const nextVal = val ?? "";
+                            setCandidates((prev) =>
+                              prev.map((x, i) => (i === slotIdx ? nextVal : x)),
+                            );
+                            onAdoptLut(nextVal, slotIdx);
                           }}
-                          className={`h-7 shrink-0 rounded px-2 text-xs font-medium transition ${
-                            isCardActive
-                              ? "bg-foreground text-background"
-                              : "bg-secondary text-muted-foreground hover:text-foreground"
-                          }`}
                         >
-                          槽位 {index}
-                        </button>
-                        <div className="min-w-0 flex-1">
-                          <Select
-                            value={id}
-                            onValueChange={(val) => {
-                              const nextVal = val ?? "";
-                              activateThisCard();
-                              setCandidates((prev) =>
-                                prev.map((x, i) =>
-                                  i === slotIdx ? nextVal : x,
-                                ),
-                              );
-                              const nextGrade = {
-                                ...draft,
-                                lut: nextVal,
-                              };
-                              setDraft(nextGrade);
-                              setDirty(true);
-                            }}
+                          <SelectTrigger
+                            aria-label={`第 ${index} 个对比滤镜`}
+                            size="xs"
+                            className="border-transparent bg-transparent shadow-none hover:bg-accent/50"
                           >
-                            <SelectTrigger
-                              aria-label={`第 ${index} 个对比滤镜`}
-                              size="xs"
-                              onFocus={activateThisCard}
-                            >
-                              <SelectValue>
-                                {(val: string) => nameOf(val)}
-                              </SelectValue>
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="">原图</SelectItem>
-                              <SelectSeparator />
-                              {categories.map((cat) => (
-                                <SelectGroup key={cat}>
-                                  <SelectGroupLabel>
-                                    {groupLabel(cat)}
-                                  </SelectGroupLabel>
-                                  {luts
-                                    .filter((l) => l.group === cat)
-                                    .map((l) => (
-                                      <SelectItem key={l.id} value={l.id}>
-                                        {lutLabel(l.name)}
-                                      </SelectItem>
-                                    ))}
-                                </SelectGroup>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            activateThisCard();
-                            const nextGrade = { ...draft, lut: id };
-                            setDraft(nextGrade);
-                            setDirty(true);
-                          }}
-                          className={`h-7 shrink-0 rounded px-2 text-xs font-medium transition ${
-                            isAdopted
-                              ? "bg-foreground text-background"
-                              : "bg-secondary text-foreground hover:bg-accent"
-                          }`}
-                        >
-                          {isAdopted ? "预览中" : "预览"}
-                        </button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-xs"
-                          aria-label={`弹窗放大查看 ${cellTitle}`}
-                          onClick={() => openLightboxForLut(id)}
-                          className="text-muted-foreground hover:text-foreground"
-                          title="放大查看"
-                        >
-                          <ZoomIn size={12} />
-                        </Button>
-                      </>
+                            <SelectValue>
+                              {(val: string) => nameOf(val)}
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="">无滤镜</SelectItem>
+                            <SelectSeparator />
+                            {categories.map((cat) => (
+                              <SelectGroup key={cat}>
+                                <SelectGroupLabel>
+                                  {groupLabel(cat)}
+                                </SelectGroupLabel>
+                                {luts
+                                  .filter((l) => l.group === cat)
+                                  .map((l) => (
+                                    <SelectItem key={l.id} value={l.id}>
+                                      {lutLabel(l.name)}
+                                    </SelectItem>
+                                  ))}
+                              </SelectGroup>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     ) : (
-                      <>
-                        <div className="flex min-w-0 items-center gap-1.5">
-                          {isCardActive && (
-                            <span className="shrink-0 rounded bg-foreground px-1.5 py-0.5 text-[10px] font-medium text-background">
-                              当前
-                            </span>
-                          )}
-                          <span className="truncate font-medium text-foreground">
-                            {cellTitle}
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <span className="truncate font-medium text-foreground">
+                          {cellTitle}
+                        </span>
+                        {isEffect && showPortrait && <PortraitBadge />}
+                        {cardTransform.zoom !== 1 && (
+                          <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+                            {Math.round(cardTransform.zoom * 100)}%
                           </span>
-                          {cardTransform.zoom !== 1 && (
-                            <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
-                              {Math.round(cardTransform.zoom * 100)}%
-                            </span>
-                          )}
-                        </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="xs"
-                          aria-label={`弹窗放大查看 ${cellTitle}`}
-                          onClick={() =>
-                            openLightboxForLut(index === 0 ? "" : id)
-                          }
-                          className="shrink-0 px-1.5 text-xs text-muted-foreground hover:text-foreground"
-                        >
-                          <ZoomIn size={12} />
-                          放大查看
-                        </Button>
-                      </>
+                        )}
+                      </div>
                     )}
+                    {isGridSlot && showPortrait && <PortraitBadge />}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label={`弹窗放大查看 ${cellTitle}`}
+                      title="放大查看"
+                      onClick={() => openLightbox(cellGrade)}
+                      className="shrink-0 text-muted-foreground hover:text-foreground"
+                    >
+                      <Expand size={12} />
+                    </Button>
                   </div>
                 </div>
               );

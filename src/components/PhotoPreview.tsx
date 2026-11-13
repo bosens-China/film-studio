@@ -13,12 +13,45 @@ type Props = {
 
 type Result = {
   file: File;
-  lut: string;
-  strength: number;
-  maxSide: number;
+  key: string;
   url: string;
   error: string;
+  done: boolean;
 };
+
+const cacheLimit = 48;
+const renders = new Map<string, Blob>();
+const fileIds = new WeakMap<File, number>();
+let nextFileId = 0;
+
+function gradeKey(file: File, grade: Grade) {
+  let id = fileIds.get(file);
+  if (id === undefined) {
+    id = ++nextFileId;
+    fileIds.set(file, id);
+  }
+  return `${id}|${grade.lut}|${grade.strength}|${grade.portrait ? 1 : 0}`;
+}
+
+function remember(key: string, blob: Blob) {
+  renders.delete(key);
+  renders.set(key, blob);
+  if (renders.size > cacheLimit) renders.delete(renders.keys().next().value!);
+}
+
+function closestRender(prefix: string): Blob | undefined {
+  let best: Blob | undefined;
+  let bestSide = 0;
+  for (const [key, blob] of renders) {
+    if (!key.startsWith(prefix)) continue;
+    const side = Number(key.slice(prefix.length));
+    if (side > bestSide) {
+      best = blob;
+      bestSide = side;
+    }
+  }
+  return best;
+}
 
 export function PhotoPreview({
   file,
@@ -28,42 +61,61 @@ export function PhotoPreview({
   zoom = 1,
   pan = { x: 0, y: 0 },
 }: Props) {
-  const { lut, strength } = grade;
+  const { lut, strength, portrait } = grade;
+  const prefix = `${gradeKey(file, grade)}|`;
+  const key = `${prefix}${maxSide}`;
   const [result, setResult] = useState<Result | null>(null);
   const currentUrl = useRef("");
-  const loading =
-    !result ||
-    result.file !== file ||
-    result.lut !== lut ||
-    result.strength !== strength ||
-    result.maxSide !== maxSide;
+  const loading = !result || result.key !== key || !result.done;
 
   useEffect(() => {
     let active = true;
-    renderImage(file, { lut, strength }, maxSide)
+    const show = (blob: Blob, done: boolean) => {
+      if (!active) return;
+      const url = URL.createObjectURL(blob);
+      if (currentUrl.current) URL.revokeObjectURL(currentUrl.current);
+      currentUrl.current = url;
+      setResult({ file, key, url, error: "", done });
+    };
+    const cached = renders.get(key);
+    if (cached) {
+      remember(key, cached);
+      void Promise.resolve().then(() => show(cached, true));
+      return () => {
+        active = false;
+      };
+    }
+    const placeholder = closestRender(prefix);
+    if (placeholder)
+      void Promise.resolve().then(() => show(placeholder, false));
+    const controller = new AbortController();
+    renderImage(
+      file,
+      { lut, strength, portrait },
+      maxSide,
+      false,
+      controller.signal,
+    )
       .then((blob) => {
-        if (!active) return;
-        const url = URL.createObjectURL(blob);
-        if (currentUrl.current) URL.revokeObjectURL(currentUrl.current);
-        currentUrl.current = url;
-        setResult({ file, lut, strength, maxSide, url, error: "" });
+        remember(key, blob);
+        show(blob, true);
       })
       .catch((err: unknown) => {
         if (active) {
           setResult({
             file,
-            lut,
-            strength,
-            maxSide,
+            key,
             url: "",
             error: err instanceof Error ? err.message : "预览失败",
+            done: true,
           });
         }
       });
     return () => {
       active = false;
+      controller.abort();
     };
-  }, [file, lut, strength, maxSide]);
+  }, [file, key, prefix, lut, strength, portrait, maxSide]);
 
   useEffect(
     () => () => {

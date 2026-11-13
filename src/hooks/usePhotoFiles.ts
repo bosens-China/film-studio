@@ -1,8 +1,23 @@
 import type { Dispatch, SetStateAction } from "react";
 import { fetchSampleFile, type SamplePhotoMeta } from "@/lib/samples";
 import { original, renderImage, resolveExportFormat } from "@/lib/renderer";
+import { detectFaces } from "@/lib/portrait";
 import type { Photo } from "@/lib/workspace-types";
 import { useWorkspaceStore } from "@/stores/workspace";
+import { useSettingsStore } from "@/stores/settings";
+
+async function detectPortraits(photos: Photo[]) {
+  for (const photo of photos) {
+    const faces = await detectFaces(photo.file);
+    useWorkspaceStore
+      .getState()
+      .setFaces(
+        photo.id,
+        faces.length,
+        useSettingsStore.getState().autoPortrait,
+      );
+  }
+}
 
 function download(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob);
@@ -61,6 +76,7 @@ export function usePhotoFiles({
       }
     }
     setPhotos((prev) => [...prev, ...added]);
+    void detectPortraits(added);
     if (!activeId && added[0]) setActiveId(added[0].id);
     if (failed.length) setError(`以下文件无法读取：${failed.join("、")}`);
     setBusy("");
@@ -98,6 +114,7 @@ export function usePhotoFiles({
         });
       }
       setPhotos((prev) => [...prev, ...added]);
+      void detectPortraits(added);
       if (!activeId && added[0]) setActiveId(added[0].id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "示例图片加载失败");

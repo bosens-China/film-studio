@@ -53,7 +53,7 @@ export function GroupSidebar({
   const setSelected = useWorkspaceStore((s) => s.setSelected);
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r border-border bg-sidebar px-3 py-4">
-      <div className="mb-2 px-2 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+      <div className="mb-2 px-2 text-[11px] font-medium text-muted-foreground">
         照片图库
       </div>
       <div className="space-y-0.5">
@@ -81,7 +81,7 @@ export function GroupSidebar({
       </div>
 
       <div className="mt-6 mb-2 flex items-center justify-between px-2">
-        <span className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+        <span className="text-[11px] font-medium text-muted-foreground">
           我的分组
         </span>
         <Button
@@ -135,8 +135,8 @@ export function GroupSidebar({
 
       <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
         {groups.length === 0 && !creatingGroup && (
-          <div className="px-2 py-3 text-xs leading-relaxed text-muted-foreground">
-            点击右上角 + 创建分组，支持将照片直接拖拽到分组归类。
+          <div className="px-2 py-2 text-xs text-muted-foreground/70">
+            暂无分组
           </div>
         )}
         {groups.map((g) => {
@@ -208,13 +208,6 @@ export function GroupSidebar({
             </ContextMenu>
           );
         })}
-      </div>
-
-      <div className="mt-auto border-t border-border pt-3 px-2 text-xs leading-relaxed text-muted-foreground">
-        <div className="font-medium text-foreground/90">纯本地暗房模式</div>
-        <p className="mt-0.5">
-          勾选照片可批量预览和应用滤镜；点击照片始终进入详情。
-        </p>
       </div>
     </aside>
   );

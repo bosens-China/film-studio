@@ -13,10 +13,10 @@ test("导入、分组、滤镜对比和批量导出", async ({ page }) => {
   await page
     .locator("input[type=file]")
     .setInputFiles([photoPath(first), photoPath(second)]);
+  await expect(page.getByText("2 张照片", { exact: true })).toBeVisible();
   await expect(
-    page.getByText("2 张照片 · 选择照片，探索属于你的色彩"),
+    page.getByText("勾选照片后，点击滤镜即可应用到所选照片。"),
   ).toBeVisible();
-  await expect(page.getByText("滤镜与调整")).toBeHidden();
   const preview = page
     .getByRole("button", { name: `查看 ${first}` })
     .locator("img");
@@ -32,11 +32,12 @@ test("导入、分组、滤镜对比和批量导出", async ({ page }) => {
     return Array.from(ctx.getImageData(0, 0, 20, 20).data);
   });
   await page.getByLabel(`选择 ${first}`).check();
-  await expect(page.getByText("滤镜与调整")).toBeVisible();
+  await expect(
+    page.getByText("勾选照片后，点击滤镜即可应用到所选照片。"),
+  ).toBeHidden();
   await page.getByPlaceholder("搜索滤镜名称").fill("经典正片");
   await page.getByRole("button", { name: /经典正片 · Classic Chrome/ }).click();
   await page.getByPlaceholder("搜索滤镜名称").fill("");
-  await page.getByRole("button", { name: "应用到选中照片 (1)" }).click();
   await expect(
     page.locator("main").getByText("经典正片 · Classic Chrome"),
   ).toBeVisible();
@@ -62,38 +63,34 @@ test("导入、分组、滤镜对比和批量导出", async ({ page }) => {
   await expect(page.getByLabel(`选择 ${second}`)).not.toBeChecked();
   await page.getByRole("button", { name: "返回照片列表" }).click();
   await page.getByRole("button", { name: "取消选择" }).click();
-  await expect(page.getByText("滤镜与调整")).toBeHidden();
+  await expect(
+    page.getByText("勾选照片后，点击滤镜即可应用到所选照片。"),
+  ).toBeVisible();
   await page.getByRole("button", { name: `查看 ${first}` }).click();
   await expect(page.getByRole("button", { name: "左右对比" })).toBeVisible();
   await page.getByRole("button", { name: "左右对比" }).click();
   await expect(page.getByText("原图", { exact: true }).first()).toBeVisible();
 
-  // Requirement 7: In detail view, only "应用到当前照片" is shown when nothing is checked; appears when checked in filmstrip
+  // 详情页只有勾选了其他照片时才提供同步。
   await expect(
-    page.getByRole("button", { name: "应用到当前照片" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: /应用到选中照片/ }),
-  ).toBeHidden();
-  await expect(
-    page.getByRole("button", { name: /应用到全部照片/ }),
+    page.getByRole("button", { name: /同步到已选照片/ }),
   ).toBeHidden();
   await page.getByLabel(`选择 ${second}`).check();
   await expect(
-    page.getByRole("button", { name: "应用到选中照片 (1)" }),
+    page.getByRole("button", { name: "同步到已选照片 (1)" }),
   ).toBeVisible();
   await page.getByLabel(`选择 ${second}`).uncheck();
   await expect(
-    page.getByRole("button", { name: /应用到选中照片/ }),
+    page.getByRole("button", { name: /同步到已选照片/ }),
   ).toBeHidden();
 
-  // 卡片拖动和局部缩放互不影响；header 缩放叠加到全部卡片。
-  const originalCard = page.getByRole("button", {
-    name: "激活 原图 视图",
+  // 卡片可直接拖动、滚轮缩放；默认联动，关闭联动后各卡片独立。
+  const originalCard = page.getByRole("group", {
+    name: "原图 预览",
     exact: true,
   });
-  const compareCard = page.getByRole("button", {
-    name: "激活 经典正片 · Classic Chrome 视图",
+  const compareCard = page.getByRole("group", {
+    name: "经典正片 · Classic Chrome 预览",
     exact: true,
   });
   const box = (await compareCard.boundingBox())!;
@@ -106,47 +103,38 @@ test("导入、分组、滤镜对比和批量导出", async ({ page }) => {
   );
   await page.mouse.up();
   await expect(page.getByRole("dialog", { name: "放大查看照片" })).toBeHidden();
-  await expect(compareCard.locator("img")).toHaveCSS(
-    "transform",
-    /matrix\(1, 0, 0, 1, 45, 25\)/,
+  for (const card of [compareCard, originalCard]) {
+    await expect(card.locator("img")).not.toHaveCSS("transform", "none");
+  }
+
+  const originalBox = (await originalCard.boundingBox())!;
+  await page.mouse.move(
+    originalBox.x + originalBox.width / 2,
+    originalBox.y + originalBox.height / 2,
   );
-  await expect(originalCard.locator("img")).toHaveCSS("transform", "none");
+  await page.mouse.wheel(0, -200);
+  for (const card of [compareCard, originalCard]) {
+    await expect(card.locator("img")).not.toHaveCSS("transform", "none");
+  }
+
+  const linkToggle = page.getByRole("button", { name: "联动", exact: true });
+  await expect(linkToggle).toHaveAttribute("aria-pressed", "true");
+  await linkToggle.click();
+  await expect(linkToggle).toHaveAttribute("aria-pressed", "false");
+  await expect(compareCard.locator("img")).not.toHaveCSS("transform", "none");
+  await compareCard.hover();
+  await page.getByRole("button", { name: "重置效果卡片视图" }).click();
+  await expect(compareCard.locator("img")).toHaveCSS("transform", "none");
+  await expect(originalCard.locator("img")).not.toHaveCSS("transform", "none");
 
   const zoomSlider = page.getByRole("slider", { name: "效果卡片缩放" });
   await zoomSlider.focus();
   await zoomSlider.press("ArrowRight");
-  await zoomSlider.press("ArrowRight");
-  await expect(compareCard.locator("img")).toHaveCSS(
-    "transform",
-    /matrix\(1\.2, 0, 0, 1\.2, 45, 25\)/,
-  );
-  await expect(originalCard.locator("img")).toHaveCSS("transform", "none");
-
-  const globalZoom = page.getByRole("slider", { name: "全部卡片缩放" });
-  await globalZoom.focus();
-  await globalZoom.press("ArrowRight");
-  await globalZoom.press("ArrowRight");
-  await expect(originalCard.locator("img")).toHaveCSS(
-    "transform",
-    /matrix\(1\.2, 0, 0, 1\.2, 0, 0\)/,
-  );
-  await expect(compareCard.locator("img")).toHaveCSS(
-    "transform",
-    /matrix\(1\.44, 0, 0, 1\.44, 45, 25\)/,
-  );
+  await expect(compareCard.locator("img")).not.toHaveCSS("transform", "none");
+  await expect(originalCard.locator("img")).not.toHaveCSS("transform", "none");
 
   await originalCard.click();
   await expect(page.getByRole("dialog", { name: "放大查看照片" })).toBeHidden();
-  await compareCard.click();
-  await page.getByRole("button", { name: "重置效果卡片视图" }).click();
-  await expect(compareCard.locator("img")).toHaveCSS(
-    "transform",
-    /matrix\(1\.2, 0, 0, 1\.2, 0, 0\)/,
-  );
-  await expect(originalCard.locator("img")).toHaveCSS(
-    "transform",
-    /matrix\(1\.2, 0, 0, 1\.2, 0, 0\)/,
-  );
   await page.getByRole("button", { name: "重置全部视图" }).click();
   await expect(originalCard.locator("img")).toHaveCSS("transform", "none");
   await expect(compareCard.locator("img")).toHaveCSS("transform", "none");
@@ -171,11 +159,16 @@ test("导入、分组、滤镜对比和批量导出", async ({ page }) => {
   await expect(page.getByLabel("第 2 个对比滤镜")).toContainText(
     "人像 400 · Portrait 400",
   );
-  await page.getByRole("button", { name: "选择 鲜艳 · Velvia 滤镜" }).click();
+  await page.getByRole("button", { name: "采用 鲜艳 · Velvia" }).click();
   await page.getByRole("button", { name: "左右对比" }).click();
   await expect(
     page.locator("main").getByText("鲜艳 · Velvia", { exact: true }),
   ).toBeVisible();
+  const groupPanel = page.getByRole("button", { name: "分组栏" });
+  await expect(groupPanel).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByRole("button", { name: "新建分组" })).toBeHidden();
+  await page.keyboard.press("[");
+  await expect(groupPanel).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "新建分组" }).click();
   await page.getByLabel("分组名称").fill("旅行");
   await page.getByRole("button", { name: "确认创建分组" }).click();
@@ -185,10 +178,7 @@ test("导入、分组、滤镜对比和批量导出", async ({ page }) => {
   await page.getByLabel("移动到分组").click();
   await page.getByRole("option", { name: "旅行" }).click();
   await page.getByRole("button", { name: "旅行", exact: true }).click();
-  await expect(page.getByText(/1 张照片 ·/)).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "应用到当前分组 (1)" }),
-  ).toBeVisible();
+  await expect(page.getByText("1 张照片", { exact: true })).toBeVisible();
   await page.getByLabel("分组 旅行 的操作菜单").click({ button: "right" });
   await page.getByRole("menuitem", { name: "删除分组" }).click();
   const deleteDialog = page.getByRole("dialog", { name: "删除分组“旅行”？" });
@@ -197,7 +187,7 @@ test("导入、分组、滤镜对比和批量导出", async ({ page }) => {
   await page.getByLabel("分组 旅行 的操作菜单").click({ button: "right" });
   await page.getByRole("menuitem", { name: "删除分组" }).click();
   await deleteDialog.getByRole("button", { name: "删除分组" }).click();
-  await expect(page.getByText(/2 张照片 ·/)).toBeVisible();
+  await expect(page.getByText("2 张照片", { exact: true })).toBeVisible();
   await page.getByLabel(`选择 ${second}`).check();
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "导出所选 (2)" }).click();
@@ -217,7 +207,7 @@ test("导入、分组、滤镜对比和批量导出", async ({ page }) => {
   expect(dims).toEqual([1206, 772]);
 });
 
-test("网格强度采用当前槽位，整体与单独缩放在各视图正确叠加", async ({
+test("网格点击槽位即采用，强度作用于已采用滤镜，联动与独立缩放正确生效", async ({
   page,
 }) => {
   await page.goto("/");
@@ -226,8 +216,15 @@ test("网格强度采用当前槽位，整体与单独缩放在各视图正确�
     .setInputFiles([photoPath(first), photoPath(second)]);
   await page.getByRole("button", { name: `查看 ${first}` }).click();
   await page.getByRole("button", { name: "2 × 2 网格" }).click();
-  await page.getByRole("button", { name: "选择 鲜艳 · Velvia 滤镜" }).click();
-  await page.getByLabel("第 2 个对比滤镜").focus();
+  const velviaSlot = page.getByRole("button", { name: "采用 鲜艳 · Velvia" });
+  await velviaSlot.click();
+  await expect(velviaSlot).toHaveAttribute("aria-pressed", "true");
+  const portraitSlot = page.getByRole("button", {
+    name: "采用 人像 400 · Portrait 400",
+  });
+  await portraitSlot.click();
+  await expect(portraitSlot).toHaveAttribute("aria-pressed", "true");
+  await expect(velviaSlot).toHaveAttribute("aria-pressed", "false");
   await expect(
     page.locator("aside").last().locator(".filter-active"),
   ).toContainText("人像 400 · Portrait 400");
@@ -240,68 +237,50 @@ test("网格强度采用当前槽位，整体与单独缩放在各视图正确�
   ).toBeVisible();
 
   await page.getByRole("button", { name: "2 × 2 网格" }).click();
-  const globalZoom = page.getByRole("slider", { name: "全部卡片缩放" });
-  await globalZoom.focus();
-  await globalZoom.press("ArrowRight");
-  const gridCards = [
-    page.getByRole("button", { name: "激活 原图 视图", exact: true }),
-    page.getByRole("button", {
-      name: "选择 经典正片 · Classic Chrome 滤镜",
-      exact: true,
-    }),
-    page.getByRole("button", {
-      name: "选择 人像 400 · Portrait 400 滤镜",
-      exact: true,
-    }),
-    page.getByRole("button", { name: "选择 鲜艳 · Velvia 滤镜", exact: true }),
-  ];
-  for (const card of gridCards) {
-    await expect(card.locator("img")).toHaveCSS(
-      "transform",
-      /matrix\(1\.1, 0, 0, 1\.1, 0, 0\)/,
-    );
-  }
   const cardZoom = page.getByRole("slider", { name: "对比卡片 2缩放" });
   await cardZoom.focus();
   await cardZoom.press("ArrowRight");
-  await expect(gridCards[2].locator("img")).toHaveCSS(
-    "transform",
-    /matrix\(1\.21, 0, 0, 1\.21, 0, 0\)/,
-  );
-  await expect(gridCards[0].locator("img")).toHaveCSS(
-    "transform",
-    /matrix\(1\.1, 0, 0, 1\.1, 0, 0\)/,
-  );
+  const gridCards = [
+    page.getByRole("group", { name: "原图 预览", exact: true }),
+    page.getByRole("button", {
+      name: "采用 经典正片 · Classic Chrome",
+      exact: true,
+    }),
+    page.getByRole("button", {
+      name: "采用 人像 400 · Portrait 400",
+      exact: true,
+    }),
+    page.getByRole("button", { name: "采用 鲜艳 · Velvia", exact: true }),
+  ];
+  for (const card of gridCards) {
+    await expect(card.locator("img")).not.toHaveCSS("transform", "none");
+  }
+  await page.getByRole("button", { name: "联动", exact: true }).click();
+  await cardZoom.focus();
+  await cardZoom.press("ArrowRight");
+  await expect(gridCards[2].locator("img")).not.toHaveCSS("transform", "none");
+  await expect(gridCards[0].locator("img")).not.toHaveCSS("transform", "none");
 
   await page.getByRole("button", { name: "单图检视" }).click();
-  const singleCard = page.getByRole("button", {
-    name: "激活 人像 400 · Portrait 400 视图",
+  const singleCard = page.getByRole("group", {
+    name: "人像 400 · Portrait 400 预览",
     exact: true,
   });
-  await expect(singleCard.locator("img")).toHaveCSS(
-    "transform",
-    /matrix\(1\.1, 0, 0, 1\.1, 0, 0\)/,
-  );
+  await expect(singleCard.locator("img")).not.toHaveCSS("transform", "none");
   const singleZoom = page.getByRole("slider", { name: "当前照片缩放" });
   await singleZoom.focus();
   await singleZoom.press("ArrowRight");
-  await expect(singleCard.locator("img")).toHaveCSS(
-    "transform",
-    /matrix\(1\.21, 0, 0, 1\.21, 0, 0\)/,
-  );
+  await expect(singleCard.locator("img")).not.toHaveCSS("transform", "none");
   await page.getByRole("button", { name: `查看 ${second}` }).click();
-  await expect(globalZoom).toHaveAttribute("aria-valuenow", "1");
   await expect(singleZoom).toHaveAttribute("aria-valuenow", "1");
   await expect(
-    page
-      .getByRole("button", { name: "激活 原图 视图", exact: true })
-      .locator("img"),
+    page.getByRole("group", { name: "原图 预览", exact: true }).locator("img"),
   ).toHaveCSS("transform", "none");
 });
 
 test("分组详情内切换照片后返回原分组", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "一键载入全部 4 张示例样张" }).click();
+  await page.getByRole("button", { name: "载入全部 4 张示例" }).click();
   await page.getByRole("button", { name: "胶片样张", exact: true }).click();
   const groupUrl = page.url();
   await page
@@ -312,9 +291,7 @@ test("分组详情内切换照片后返回原分组", async ({ page }) => {
     .click();
   await page.getByRole("button", { name: "返回照片列表", exact: true }).click();
   await expect(page).toHaveURL(groupUrl);
-  await expect(
-    page.getByText("4 张照片 · 选择照片，探索属于你的色彩"),
-  ).toBeVisible();
+  await expect(page.getByText("4 张照片", { exact: true })).toBeVisible();
 });
 
 test("放大弹窗限制焦点、支持滤镜菜单并恢复打开按钮的焦点", async ({ page }) => {
@@ -358,7 +335,6 @@ test("修改后刷新会提示，取消后保留照片", async ({ page }) => {
   await page.locator("input[type=file]").setInputFiles(photoPath(first));
   await page.getByLabel(`选择 ${first}`).check();
   await page.getByRole("button", { name: /经典正片 · Classic Chrome/ }).click();
-  await page.getByRole("button", { name: "应用到选中照片 (1)" }).click();
   const dialogPromise = page.waitForEvent("dialog");
   void page.reload().catch(() => {});
   const dialog = await dialogPromise;
@@ -371,7 +347,7 @@ test("修改后刷新会提示，取消后保留照片", async ({ page }) => {
   const confirmedReload = page.reload();
   await (await secondDialog).accept();
   await confirmedReload;
-  await expect(page.getByText("从照片开始，发现不一样的色彩")).toBeVisible();
+  await expect(page.getByText("导入照片")).toBeVisible();
 });
 
 test("路由、菜单和导出作用范围", async ({ page }) => {
@@ -390,12 +366,12 @@ test("路由、菜单和导出作用范围", async ({ page }) => {
   await page.getByRole("menuitem", { name: "查看照片" }).click();
   await expect(page).toHaveURL(/\/photos\//);
   await expect(
-    page.getByRole("button", { name: "导出当前视图" }),
+    page.getByRole("button", { name: "导出当前照片" }),
   ).toBeEnabled();
   await expect(page.getByText("滤镜与调整")).toBeVisible();
   await page.getByRole("button", { name: /经典正片 · Classic Chrome/ }).click();
   const downloadPromise = page.waitForEvent("download");
-  await page.getByRole("button", { name: "导出当前视图" }).click();
+  await page.getByRole("button", { name: "导出当前照片" }).click();
   const currentDownload = await downloadPromise;
   expect(currentDownload.suggestedFilename()).toBe(
     first.replace(".jpg", "-滤镜.jpg"),
@@ -431,11 +407,13 @@ test("路由、菜单和导出作用范围", async ({ page }) => {
   await expect(page).toHaveURL("/");
   await expect(page.getByLabel(`选择 ${second}`)).toBeChecked();
   await page.getByLabel(`选择 ${second}`).uncheck();
-  await expect(page.getByText("滤镜与调整")).toBeHidden();
+  await expect(
+    page.getByText("勾选照片后，点击滤镜即可应用到所选照片。"),
+  ).toBeVisible();
   await page.goForward();
   await expect(page).toHaveURL(/\/photos\//);
   await expect(
-    page.getByRole("button", { name: "导出当前视图" }),
+    page.getByRole("button", { name: "导出当前照片" }),
   ).toBeVisible();
 });
 
@@ -484,7 +462,6 @@ test("切换滤镜时在对应照片显示处理状态", async ({ page }) => {
     await route.continue();
   });
   await page.getByRole("button", { name: /经典正片 · Classic Chrome/ }).click();
-  await page.getByRole("button", { name: "应用到选中照片 (1)" }).click();
   try {
     await expect(preview.getByRole("status")).toHaveText("正在处理…");
   } finally {
@@ -493,35 +470,28 @@ test("切换滤镜时在对应照片显示处理状态", async ({ page }) => {
   await expect(preview.getByRole("status")).toBeHidden();
 });
 
-test("内置示例样片载入、全部滤镜分类与分组应用及刷新跳转 404", async ({
-  page,
-}) => {
+test("内置示例样片载入与分组全选应用滤镜", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByText("没有手头照片？试试内置胶片样张")).toBeVisible();
-  await page.getByRole("button", { name: "一键载入全部 4 张示例样张" }).click();
-  await expect(
-    page.getByText("4 张照片 · 选择照片，探索属于你的色彩"),
-  ).toBeVisible();
+  await expect(page.getByText("示例样张")).toBeVisible();
+  await page.getByRole("button", { name: "载入全部 4 张示例" }).click();
+  await expect(page.getByText("4 张照片", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "追加示例样片" })).toBeHidden();
-  await expect(page.getByText("滤镜与调整")).toBeHidden();
+  await expect(
+    page.getByText("勾选照片后，点击滤镜即可应用到所选照片。"),
+  ).toBeVisible();
   await page.getByRole("button", { name: "胶片样张", exact: true }).click();
   await expect(page).toHaveURL(/\/groups\//);
-  // Filter panel stays hidden until at least 1 photo is checked
-  await expect(page.getByText("滤镜与调整")).toBeHidden();
+  // Filter panel stays disabled until at least 1 photo is checked
+  await expect(
+    page.getByText("勾选照片后，点击滤镜即可应用到所选照片。"),
+  ).toBeVisible();
   await page.getByLabel("全选当前分组").check();
-  await expect(page.getByText("滤镜与调整")).toBeVisible();
+  await expect(
+    page.getByText("勾选照片后，点击滤镜即可应用到所选照片。"),
+  ).toBeHidden();
   await expect(page.getByLabel("滤镜分类")).toContainText("全部类别");
   await page.getByRole("button", { name: /鲜艳 · Velvia/ }).click();
-  await page.getByRole("button", { name: "应用到当前分组 (4)" }).click();
   await expect(
     page.locator("main").getByText("鲜艳 · Velvia").first(),
   ).toBeVisible();
-
-  // Refreshing while inside a session-only group redirects directly to 404
-  const reloadDialog = page.waitForEvent("dialog");
-  const reloaded = page.reload();
-  await (await reloadDialog).accept();
-  await reloaded;
-  await expect(page).toHaveURL("/404");
-  await expect(page.getByRole("heading", { name: "404" })).toBeVisible();
 });

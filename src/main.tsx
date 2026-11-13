@@ -25,6 +25,7 @@ const notFoundRoute = createRoute({
 });
 const splatRoute = createRoute({ getParentRoute: () => rootRoute, path: "$" });
 const router = createRouter({
+  basepath: import.meta.env.BASE_URL.replace(/\/$/, "") || "/",
   routeTree: rootRoute.addChildren([
     indexRoute,
     groupRoute,

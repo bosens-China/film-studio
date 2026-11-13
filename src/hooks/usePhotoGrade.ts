@@ -3,74 +3,76 @@ import type { Grade } from "@/lib/renderer";
 import type { CompareMode } from "@/lib/workspace-types";
 import { useWorkspaceStore } from "@/stores/workspace";
 
+/** Grid slot that receives a newly chosen filter: the adopted one, else the first empty one. */
+export function slotFor(candidates: string[], appliedLut: string) {
+  const adopted = appliedLut ? candidates.indexOf(appliedLut) : -1;
+  if (adopted >= 0) return adopted;
+  const empty = candidates.indexOf("");
+  return empty >= 0 ? empty : 0;
+}
+
 export function usePhotoGrade({
   view,
   mode,
-  draft,
-  setDraft,
-  activeSlot,
-  currentInspectorLut,
-  setGridActiveIndex,
+  activeId,
+  gridSlot,
   setCandidates,
   setDirty,
-  setBatchPreview,
 }: {
   view: "library" | "compare";
   mode: CompareMode;
-  draft: Grade;
-  setDraft: Dispatch<SetStateAction<Grade>>;
-  activeSlot: number;
-  currentInspectorLut: string;
-  setGridActiveIndex: Dispatch<SetStateAction<number>>;
+  activeId: string;
+  gridSlot: number;
   setCandidates: Dispatch<SetStateAction<string[]>>;
   setDirty: Dispatch<SetStateAction<boolean>>;
-  setBatchPreview: Dispatch<
-    SetStateAction<{ selection: string; grade: Grade } | null>
-  >;
 }) {
   const selected = useWorkspaceStore((s) => s.selected);
+  const photos = useWorkspaceStore((s) => s.photos);
   const applyGrade = useWorkspaceStore((s) => s.applyGrade);
-  function applyGradeToIds(ids: string[], nextGrade: Grade) {
-    if (!ids.length) return;
-    applyGrade(ids, nextGrade);
-    setDirty(true);
+  const targets =
+    view === "library" ? selected : activeId ? [activeId] : ([] as string[]);
+
+  function applyGradeToIds(ids: string[], patch: Partial<Grade>) {
+    const changed = ids.length > 0 && applyGrade(ids, patch);
+    if (changed) setDirty(true);
+    return changed;
   }
 
-  function apply(ids: string[]) {
-    const effectiveLut =
-      view === "compare" && mode === "grid" ? currentInspectorLut : draft.lut;
-    const gradeToApply: Grade = { lut: effectiveLut, strength: draft.strength };
-    setDraft(gradeToApply);
-    applyGradeToIds(ids, gradeToApply);
-    if (selected.length > 0 && selected.every((id) => ids.includes(id)))
-      setBatchPreview(null);
-  }
-
-  function handleSelectLut(lutId: string) {
-    const nextGrade: Grade = { ...draft, lut: lutId };
-    setDraft(nextGrade);
-
-    setDirty(true);
-    if (view === "compare" && mode === "grid") {
-      setGridActiveIndex(activeSlot + 1);
-      setCandidates((prev) =>
-        prev.map((c, idx) => (idx === activeSlot ? lutId : c)),
-      );
-    } else if (view === "library") {
-      setBatchPreview({ selection: selected.join("\0"), grade: nextGrade });
+  function selectLut(lut: string) {
+    if (view === "compare" && mode === "grid" && lut) {
+      setCandidates((prev) => {
+        if (prev.includes(lut)) return prev;
+        return prev.map((c, i) => (i === gridSlot ? lut : c));
+      });
     }
+    return applyGradeToIds(targets, { lut });
   }
 
-  function handleStrengthChange(nextStrength: number) {
-    const nextGrade: Grade = {
-      lut: currentInspectorLut,
-      strength: nextStrength,
-    };
-    setDraft(nextGrade);
-    setDirty(true);
-    if (view === "library")
-      setBatchPreview({ selection: selected.join("\0"), grade: nextGrade });
+  function commitStrength(strength: number) {
+    return applyGradeToIds(targets, { strength });
   }
 
-  return { applyGradeToIds, apply, handleSelectLut, handleStrengthChange };
+  function setPortrait(portrait: boolean) {
+    return applyGradeToIds(
+      portrait
+        ? targets.filter((id) => photos.find((p) => p.id === id)?.faces)
+        : targets,
+      { portrait },
+    );
+  }
+
+  function syncToSelected(grade: Grade) {
+    applyGradeToIds(
+      selected.filter((id) => id !== activeId),
+      grade,
+    );
+  }
+
+  return {
+    applyGradeToIds,
+    selectLut,
+    commitStrength,
+    setPortrait,
+    syncToSelected,
+  };
 }

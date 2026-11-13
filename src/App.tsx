@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEventListener } from "ahooks";
 import { Button } from "@/components/ui/button";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { PhotoLightbox } from "@/components/PhotoLightbox";
-import { FilterInspector } from "@/components/FilterInspector";
+import {
+  FilterInspector,
+  type PortraitControl,
+} from "@/components/FilterInspector";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
 import { GroupSidebar } from "@/components/GroupSidebar";
 import { PhotoGrid } from "@/components/PhotoGrid";
@@ -10,14 +14,16 @@ import { CompareStage } from "@/components/CompareStage";
 import { WorkspaceToolbar } from "@/components/WorkspaceToolbar";
 import { WorkbenchHeader } from "@/components/WorkbenchHeader";
 import { DeleteGroupDialog } from "@/components/DeleteGroupDialog";
+import { SettingsDialog } from "@/components/SettingsDialog";
 import { original, type Grade } from "@/lib/renderer";
 import { nameOf } from "@/lib/luts";
 
 import type { Photo, CompareMode } from "@/lib/workspace-types";
 import { useWorkspaceStore } from "@/stores/workspace";
+import { useSettingsStore } from "@/stores/settings";
 import { useCardView } from "@/hooks/useCardView";
 import { usePhotoFiles } from "@/hooks/usePhotoFiles";
-import { usePhotoGrade } from "@/hooks/usePhotoGrade";
+import { slotFor, usePhotoGrade } from "@/hooks/usePhotoGrade";
 import { usePhotoDrag } from "@/hooks/usePhotoDrag";
 import { useGroupActions } from "@/hooks/useGroupActions";
 
@@ -26,6 +32,52 @@ const initialCandidates = [
   "Negative New/Portrait 400.png",
   "Fuji Series/Velvia.png",
 ];
+
+function isEditable(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  if (target.tagName === "TEXTAREA" || target.tagName === "SELECT") return true;
+  return (
+    target instanceof HTMLInputElement &&
+    !["checkbox", "radio", "button"].includes(target.type)
+  );
+}
+
+function ownsArrowKeys(target: EventTarget | null) {
+  return (
+    target instanceof HTMLElement &&
+    !!target.closest(
+      '[role="slider"],[role="combobox"],[role="listbox"],[role="menu"],[role="dialog"]',
+    )
+  );
+}
+
+function portraitControl(targets: Photo[]): PortraitControl {
+  const detecting = targets.some((p) => p.faces === undefined);
+  const withFaces = targets.filter((p) => p.faces);
+  if (!withFaces.length)
+    return {
+      checked: false,
+      disabled: true,
+      hint: detecting ? "正在识别人脸…" : "未检测到人脸",
+    };
+  const checked = withFaces.every((p) => p.grade.portrait);
+  if (targets.length === 1) {
+    const [photo] = withFaces;
+    return {
+      checked,
+      disabled: false,
+      hint: `检测到 ${photo.faces} 张人脸${
+        checked && !photo.portraitTouched ? " · 已自动开启" : ""
+      }`,
+    };
+  }
+  return {
+    checked,
+    disabled: false,
+    hint: `${withFaces.length} / ${targets.length} 张含人脸${detecting ? " · 识别中" : ""}`,
+  };
+}
 
 export default function App() {
   const photos = useWorkspaceStore((s) => s.photos);
@@ -38,6 +90,10 @@ export default function App() {
   const activeId = useWorkspaceStore((s) => s.activeId);
   const setActiveId = useWorkspaceStore((s) => s.setActiveId);
   const assignPhotosToGroup = useWorkspaceStore((s) => s.assignPhotosToGroup);
+  const canUndo = useWorkspaceStore((s) => s.past.length > 0);
+  const canRedo = useWorkspaceStore((s) => s.future.length > 0);
+  const undo = useWorkspaceStore((s) => s.undo);
+  const redo = useWorkspaceStore((s) => s.redo);
   const navigate = useNavigate();
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
@@ -65,22 +121,19 @@ export default function App() {
       : libraryFilter;
   const view = routeId ? "compare" : "library";
   const lastRouteId = useRef("");
+  const hasPhotos = photos.length > 0;
+  const panels = useSettingsStore((s) => s.panels[view]);
+  const togglePanel = useSettingsStore((s) => s.togglePanel);
 
   const [mode, setMode] = useState<CompareMode>("single");
-  const [draft, setDraft] = useState<Grade>(original);
-  const [batchPreview, setBatchPreview] = useState<{
-    selection: string;
-    grade: Grade;
-  } | null>(null);
+  const [dragStrength, setDragStrength] = useState<number | null>(null);
   const [candidates, setCandidates] = useState(initialCandidates);
-  const [activeSlot, setActiveSlot] = useState<number>(0);
-  const [sideActiveIndex, setSideActiveIndex] = useState<0 | 1>(1);
-  const [gridActiveIndex, setGridActiveIndex] = useState<number>(1);
-
+  const [adoptedSlot, setAdoptedSlot] = useState<number | null>(null);
   const cardView = useCardView();
-  const { setViewZoom, setCardTransforms } = cardView;
+  const { resetView } = cardView;
   const [peekingOriginal, setPeekingOriginal] = useState(false);
-  const [lightbox, setLightbox] = useState<{ lut: string } | null>(null);
+  const [lightbox, setLightbox] = useState<{ grade: Grade } | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
@@ -93,40 +146,39 @@ export default function App() {
       group === "all" ||
       (group === "ungrouped" ? !photo.group : photo.group === group),
   );
+  const selectedPhotos = photos.filter((p) => selected.includes(p.id));
   const currentGroupObj = groups.find((g) => g.id === group);
-  const previewingSelection =
-    view === "library" &&
-    selected.length > 0 &&
-    batchPreview?.selection === selected.join("\0");
-  const currentDraft =
-    view === "library"
-      ? previewingSelection
-        ? batchPreview!.grade
-        : (photos.find((photo) => photo.id === selected[0])?.grade ?? draft)
-      : draft;
-  const targetDescription =
-    view === "compare"
-      ? active
-        ? `当前照片 · ${active.file.name}`
-        : "未选择照片"
-      : `已勾选 ${selected.length} 张照片`;
+  const inGrid = view === "compare" && mode === "grid";
 
-  // In 2x2 grid mode, the right filter list's active state is synchronized with the focused slot's filter!
-  const currentInspectorLut =
-    view === "compare" && mode === "grid"
-      ? (candidates[activeSlot] ?? "")
-      : currentDraft.lut;
+  const appliedGrade =
+    view === "compare"
+      ? (active?.grade ?? original)
+      : (photos.find((photo) => photo.id === selected[0])?.grade ?? original);
+  const viewGrade: Grade =
+    dragStrength === null
+      ? appliedGrade
+      : { ...appliedGrade, strength: dragStrength };
+  const targetLabel =
+    view === "library"
+      ? selected.length
+        ? `已选 ${selected.length} 张`
+        : "未选择照片"
+      : "当前照片";
 
   const exportVariants = candidates
     .map((lut, index) => ({ lut, index }))
     .filter(({ lut }) => lut !== "");
+  const gridSlot =
+    adoptedSlot !== null && candidates[adoptedSlot] === viewGrade.lut
+      ? adoptedSlot
+      : slotFor(candidates, viewGrade.lut);
 
-  const activeCardKey =
+  const primaryCardKey =
     mode === "single"
       ? "single"
       : mode === "side"
-        ? `side-${sideActiveIndex}`
-        : `grid-${gridActiveIndex}`;
+        ? "side-1"
+        : `grid-${gridSlot + 1}`;
 
   useEffect(() => {
     if (isNotFound && pathname !== "/404") {
@@ -142,13 +194,13 @@ export default function App() {
     if (photo) {
       // oxlint-disable-next-line react/set-state-in-effect
       setActiveId(photo.id);
+      resetView();
       // oxlint-disable-next-line react/set-state-in-effect
-      setDraft({ ...photo.grade });
-      setViewZoom(1);
-      setCardTransforms({});
+      setAdoptedSlot(null);
+      // oxlint-disable-next-line react/set-state-in-effect
       setLightbox(null);
     }
-  }, [routeId, photos, setActiveId, setViewZoom, setCardTransforms]);
+  }, [routeId, photos, setActiveId, resetView]);
 
   useEffect(() => {
     if (!dirty) return;
@@ -181,14 +233,10 @@ export default function App() {
 
   function openPhoto(photo: Photo) {
     setActiveId(photo.id);
-    setDraft(
-      view === "library" && previewingSelection && selected.includes(photo.id)
-        ? { ...batchPreview!.grade }
-        : { ...photo.grade },
-    );
     lastRouteId.current = photo.id;
-    setViewZoom(1);
-    setCardTransforms({});
+    setDragStrength(null);
+    setAdoptedSlot(null);
+    resetView();
     setLightbox(null);
     if (view === "library") setCompareReturnGroup(routeGroupId);
     void navigate({ to: "/photos/$photoId", params: { photoId: photo.id } });
@@ -206,19 +254,35 @@ export default function App() {
     }
   }
 
-  const { applyGradeToIds, apply, handleSelectLut, handleStrengthChange } =
-    usePhotoGrade({
-      view,
-      mode,
-      draft: currentDraft,
-      setDraft,
-      activeSlot,
-      currentInspectorLut,
-      setGridActiveIndex,
-      setCandidates,
-      setDirty,
-      setBatchPreview,
+  const {
+    applyGradeToIds,
+    selectLut,
+    commitStrength,
+    setPortrait,
+    syncToSelected,
+  } = usePhotoGrade({
+    view,
+    mode,
+    activeId: active?.id ?? "",
+    gridSlot,
+    setCandidates,
+    setDirty,
+  });
+
+  function changeMode(next: CompareMode) {
+    setMode(next);
+    const lut = active?.grade.lut;
+    if (next !== "grid" || !lut || candidates.includes(lut)) return;
+    setCandidates((prev) => {
+      const slot = slotFor(prev, "");
+      return prev.map((c, i) => (i === slot ? lut : c));
     });
+  }
+
+  // Single view is only a first look; an edit moves to side-by-side so the original stays visible.
+  function compareAfterEdit(changed: boolean) {
+    if (changed && view === "compare" && mode === "single") setMode("side");
+  }
 
   function changeGroup(id: string) {
     assignPhotosToGroup(selected, id);
@@ -241,10 +305,6 @@ export default function App() {
     view,
   });
 
-  function openLightboxForLut(lutId: string) {
-    setLightbox({ lut: lutId });
-  }
-
   const {
     draggingFiles,
     setDraggingFiles,
@@ -256,14 +316,59 @@ export default function App() {
     handleGroupDrop,
   } = usePhotoDrag(importFiles, assignPhotosToGroup);
 
+  useEventListener("keydown", (event: KeyboardEvent) => {
+    if (isEditable(event.target)) return;
+    const mod = event.metaKey || event.ctrlKey;
+    const key = event.key.toLowerCase();
+    if (mod && (key === "z" || key === "y")) {
+      event.preventDefault();
+      if (key === "y" || event.shiftKey) redo();
+      else undo();
+      return;
+    }
+    if (mod || event.altKey) return;
+    if (
+      (event.key === "[" || event.key === "]") &&
+      hasPhotos &&
+      !lightbox &&
+      !settingsOpen
+    ) {
+      event.preventDefault();
+      togglePanel(view, event.key === "[" ? "left" : "right");
+      return;
+    }
+    if (view !== "compare" || !active || lightbox || settingsOpen) return;
+    if (event.key === "\\") {
+      event.preventDefault();
+      setPeekingOriginal(true);
+      return;
+    }
+    if (
+      (event.key === "ArrowLeft" || event.key === "ArrowRight") &&
+      !ownsArrowKeys(event.target)
+    ) {
+      const index = photos.findIndex((p) => p.id === active.id);
+      const next = photos[index + (event.key === "ArrowRight" ? 1 : -1)];
+      if (next) {
+        event.preventDefault();
+        openPhoto(next);
+      }
+    }
+  });
+  useEventListener("keyup", (event: KeyboardEvent) => {
+    if (event.key === "\\") setPeekingOriginal(false);
+  });
+  useEventListener("blur", () => setPeekingOriginal(false));
+
   const onFile = (event: ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) void importFiles(event.target.files);
     event.target.value = "";
   };
 
+  const inspectorDisabled = view === "library" && selected.length === 0;
+  const showGroupSidebar = hasPhotos && panels.left;
   const showFilterSidebar =
-    (view === "compare" && !!active) ||
-    (view === "library" && selected.length > 0);
+    hasPhotos && panels.right && (view === "library" || !!active);
 
   return (
     <div
@@ -294,16 +399,16 @@ export default function App() {
           !!busy || (view === "compare" ? !active : !selected.length)
         }
         exportLabel={
-          view === "compare" ? "导出当前视图" : `导出所选 (${selected.length})`
+          view === "compare" ? "导出当前照片" : `导出所选 (${selected.length})`
         }
         variantCount={exportVariants.length}
         onExportVariants={
-          view === "compare" && mode === "grid" && active
+          inGrid && active
             ? () => {
                 void exportPhotos(
                   exportVariants.map(({ lut }) => ({
                     ...active,
-                    grade: { lut, strength: draft.strength },
+                    grade: { ...viewGrade, lut },
                   })),
                   {
                     archiveName: "滤镜对比.zip",
@@ -316,72 +421,67 @@ export default function App() {
             : undefined
         }
         onHome={() => selectGroupView("all")}
-        onAddPhotos={() => inputRef.current?.click()}
+        onAddPhotos={
+          view === "library" ? () => inputRef.current?.click() : undefined
+        }
         onDismissError={() => setError("")}
+        onOpenSettings={() => setSettingsOpen(true)}
+        panels={
+          hasPhotos && !isNotFound
+            ? { ...panels, onToggle: (side) => togglePanel(view, side) }
+            : undefined
+        }
         onExport={() =>
           void exportPhotos(
             view === "compare" && active
-              ? [
-                  {
-                    ...active,
-                    grade: {
-                      lut:
-                        (mode === "grid" && gridActiveIndex === 0) ||
-                        (mode === "side" && sideActiveIndex === 0)
-                          ? ""
-                          : mode === "grid"
-                            ? currentInspectorLut
-                            : draft.lut,
-                      strength: draft.strength,
-                    },
-                  },
-                ]
-              : photos.filter((p) => selected.includes(p.id)),
+              ? [{ ...active, grade: viewGrade }]
+              : selectedPhotos,
           )
         }
       />
 
-      {/* Main 3-Column Full-Width Studio Area or 404 Page */}
       {isNotFound ? (
         <main className="flex flex-1 flex-col items-center justify-center px-6 text-center">
-          <div className="w-full max-w-md rounded-xl border border-border bg-card p-8 shadow-sm">
-            <div className="mx-auto mb-3 inline-flex rounded-md border border-border bg-secondary px-2.5 py-1 text-xs font-semibold tracking-widest text-muted-foreground">
-              404 NOT FOUND
-            </div>
-            <h1 className="text-3xl font-bold tracking-tight text-foreground">
+          <div className="w-full max-w-sm">
+            <h1 className="text-3xl font-semibold tracking-tight text-foreground">
               404
             </h1>
-            <p className="mt-2 text-sm font-medium text-foreground">
+            <p className="mt-2 text-sm text-foreground">
               页面不存在或会话数据已清空
             </p>
             <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-              你访问的分组、照片详情或页面地址不存在。本地编辑的照片与分组仅保存在当前会话中，刷新页面后将会重置。
+              照片与分组只保存在当前会话中，刷新页面后会重置。
             </p>
-            <Button className="mt-6" onClick={() => selectGroupView("all")}>
+            <Button
+              className="mt-6"
+              size="sm"
+              onClick={() => selectGroupView("all")}
+            >
               返回首页
             </Button>
           </div>
         </main>
       ) : (
         <div className="flex min-h-0 flex-1">
-          <GroupSidebar
-            group={group}
-            dragOverGroupId={dragOverGroupId}
-            setDragOverGroupId={setDragOverGroupId}
-            handleGroupDrop={handleGroupDrop}
-            selectGroupView={selectGroupView}
-            creatingGroup={creatingGroup}
-            setCreatingGroup={setCreatingGroup}
-            newGroup={newGroup}
-            setNewGroup={setNewGroup}
-            createGroup={createGroup}
-            deleteGroup={(id) =>
-              setGroupToDelete(groups.find((item) => item.id === id) ?? null)
-            }
-            exportPhotos={exportPhotos}
-          />
+          {showGroupSidebar && (
+            <GroupSidebar
+              group={group}
+              dragOverGroupId={dragOverGroupId}
+              setDragOverGroupId={setDragOverGroupId}
+              handleGroupDrop={handleGroupDrop}
+              selectGroupView={selectGroupView}
+              creatingGroup={creatingGroup}
+              setCreatingGroup={setCreatingGroup}
+              newGroup={newGroup}
+              setNewGroup={setNewGroup}
+              createGroup={createGroup}
+              deleteGroup={(id) =>
+                setGroupToDelete(groups.find((item) => item.id === id) ?? null)
+              }
+              exportPhotos={exportPhotos}
+            />
+          )}
 
-          {/* Center Workspace: Full-Width Grid or Compare Stage */}
           <main className="flex min-w-0 flex-1 flex-col bg-background">
             <WorkspaceToolbar
               view={view}
@@ -392,19 +492,13 @@ export default function App() {
               showLibrary={showLibrary}
               changeGroup={changeGroup}
               mode={mode}
-              setMode={setMode}
-              draft={draft}
-              candidates={candidates}
-              setCandidates={setCandidates}
-              activeSlot={activeSlot}
+              onModeChange={changeMode}
               setPeekingOriginal={setPeekingOriginal}
-              openLightboxForLut={openLightboxForLut}
-              gridActiveIndex={gridActiveIndex}
-              sideActiveIndex={sideActiveIndex}
+              onOpenLightbox={() => setLightbox({ grade: viewGrade })}
+              primaryCardKey={primaryCardKey}
               cardView={cardView}
             />
 
-            {/* Main Stage Body */}
             {photos.length === 0 ? (
               <EmptyLibrary
                 busy={!!busy}
@@ -414,7 +508,6 @@ export default function App() {
             ) : view === "library" ? (
               <PhotoGrid
                 visible={visible}
-                previewGrade={previewingSelection ? batchPreview!.grade : null}
                 group={group}
                 setDraggingPhotoIds={setDraggingPhotoIds}
                 openPhoto={openPhoto}
@@ -426,18 +519,17 @@ export default function App() {
                 <CompareStage
                   active={active}
                   mode={mode}
-                  draft={draft}
-                  setDraft={setDraft}
+                  grade={viewGrade}
                   candidates={candidates}
+                  adoptedSlot={gridSlot}
                   setCandidates={setCandidates}
-                  activeCardKey={activeCardKey}
                   cardView={cardView}
                   peekingOriginal={peekingOriginal}
-                  setSideActiveIndex={setSideActiveIndex}
-                  setGridActiveIndex={setGridActiveIndex}
-                  setActiveSlot={setActiveSlot}
-                  setDirty={setDirty}
-                  openLightboxForLut={openLightboxForLut}
+                  onAdoptLut={(lut, slot) => {
+                    setAdoptedSlot(lut ? slot : null);
+                    applyGradeToIds([active.id], { lut });
+                  }}
+                  openLightbox={(grade) => setLightbox({ grade })}
                   openPhoto={openPhoto}
                 />
               )
@@ -446,32 +538,38 @@ export default function App() {
 
           <FilterInspector
             show={showFilterSidebar}
-            view={view}
-            mode={mode}
-            activeId={active?.id}
-            selected={selected}
-            visibleIds={visible.map((photo) => photo.id)}
-            hasCurrentGroup={!!currentGroupObj}
-            targetDescription={targetDescription}
-            previewPending={
-              view === "library"
-                ? previewingSelection
-                : !!active &&
-                  (active.grade.lut !== currentInspectorLut ||
-                    active.grade.strength !== draft.strength)
+            disabled={inspectorDisabled}
+            targetLabel={targetLabel}
+            currentLut={viewGrade.lut}
+            strength={viewGrade.strength}
+            portrait={portraitControl(
+              view === "compare" ? (active ? [active] : []) : selectedPhotos,
+            )}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            syncCount={
+              view === "compare" && active
+                ? selected.filter((id) => id !== active.id).length
+                : 0
             }
-            currentInspectorLut={currentInspectorLut}
-            strength={currentDraft.strength}
-            gridActiveIndex={gridActiveIndex}
-            onSlotChange={(slot) => {
-              setActiveSlot(slot);
-              setGridActiveIndex(slot + 1);
-              const slotLut = candidates[slot] ?? "";
-              setDraft((d) => ({ ...d, lut: slotLut }));
+            onSelectLut={(lut) => {
+              if (inGrid && lut !== appliedGrade.lut) {
+                const existingSlot = candidates.indexOf(lut);
+                setAdoptedSlot(
+                  lut ? (existingSlot >= 0 ? existingSlot : gridSlot) : null,
+                );
+              }
+              compareAfterEdit(selectLut(lut));
             }}
-            handleSelectLut={handleSelectLut}
-            handleStrengthChange={handleStrengthChange}
-            apply={apply}
+            onStrengthChange={setDragStrength}
+            onStrengthCommit={(value) => {
+              compareAfterEdit(commitStrength(value));
+              setDragStrength(null);
+            }}
+            onPortraitChange={(on) => compareAfterEdit(setPortrait(on))}
+            onUndo={undo}
+            onRedo={redo}
+            onSync={() => syncToSelected(appliedGrade)}
           />
         </div>
       )}
@@ -487,20 +585,26 @@ export default function App() {
         />
       )}
 
+      {settingsOpen && (
+        <SettingsDialog onClose={() => setSettingsOpen(false)} />
+      )}
+
       {lightbox && active && (
         <PhotoLightbox
           file={active.file}
-          strength={draft.strength}
-          lightbox={lightbox}
+          grade={lightbox.grade}
           onClose={() => setLightbox(null)}
-          onChangeLut={(lut) => setLightbox({ lut })}
+          onChangeLut={(lut) =>
+            setLightbox(
+              (current) => current && { grade: { ...current.grade, lut } },
+            )
+          }
         />
       )}
 
-      {/* Drag Overlay */}
       {draggingFiles && (
-        <div className="pointer-events-none fixed inset-3 z-50 flex items-center justify-center rounded-xl border-2 border-dashed border-foreground/40 bg-background/90 text-base font-medium text-foreground backdrop-blur-xs">
-          松开鼠标以导入照片到当前视图（或拖入左侧指定分组）
+        <div className="pointer-events-none fixed inset-3 z-50 flex items-center justify-center rounded-xl border-2 border-dashed border-foreground/40 bg-background/90 text-sm font-medium text-foreground backdrop-blur-xs">
+          松开以导入到当前视图，或拖到左侧分组
         </div>
       )}
     </div>

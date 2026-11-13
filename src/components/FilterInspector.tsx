@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, RotateCcw, Search, SlidersHorizontal, X } from "lucide-react";
+import { Check, Redo2, Search, SquareCheck, Undo2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -11,63 +11,56 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import { groupLabel, lutLabel } from "@/lib/lut-labels";
 import { luts, categories } from "@/lib/luts";
 import { matchesScene, sceneLabels, type LutScene } from "@/lib/lut-scenes";
 
-function swatchGradient(groupName: string): string {
-  if (groupName.includes("Bw") || groupName.includes("Black & White")) {
-    return "from-zinc-200 via-zinc-500 to-zinc-900";
-  }
-  if (groupName.includes("Fuji")) {
-    return "from-emerald-300/80 via-teal-600/80 to-zinc-900";
-  }
-  if (groupName.includes("Portrait") || groupName.includes("Negative")) {
-    return "from-amber-200/80 via-orange-500/70 to-stone-900";
-  }
-  if (groupName.includes("Cinematic") || groupName.includes("Mood")) {
-    return "from-cyan-300/75 via-slate-600/80 to-amber-700/80";
-  }
-  if (groupName.includes("Colorslide") || groupName.includes("Boost")) {
-    return "from-rose-400/80 via-amber-400/80 to-indigo-900";
-  }
-  return "from-zinc-300/80 via-stone-500/80 to-zinc-800";
-}
+const isMac =
+  typeof navigator !== "undefined" &&
+  /Mac|iPhone|iPad/.test(navigator.platform);
+const mod = isMac ? "⌘" : "Ctrl+";
+
+export type PortraitControl = {
+  checked: boolean;
+  disabled: boolean;
+  hint: string;
+};
 
 export function FilterInspector({
   show,
-  view,
-  mode,
-  activeId,
-  selected,
-  visibleIds,
-  hasCurrentGroup,
-  targetDescription,
-  previewPending,
-  currentInspectorLut,
+  disabled,
+  targetLabel,
+  currentLut,
   strength,
-  gridActiveIndex,
-  onSlotChange,
-  handleSelectLut,
-  handleStrengthChange,
-  apply,
+  portrait,
+  canUndo,
+  canRedo,
+  syncCount,
+  onSelectLut,
+  onStrengthChange,
+  onStrengthCommit,
+  onPortraitChange,
+  onUndo,
+  onRedo,
+  onSync,
 }: {
   show: boolean;
-  view: "compare" | "library";
-  mode: "single" | "side" | "grid";
-  activeId: string | undefined;
-  selected: string[];
-  visibleIds: string[];
-  hasCurrentGroup: boolean;
-  targetDescription: string;
-  previewPending: boolean;
-  currentInspectorLut: string;
+  disabled: boolean;
+  targetLabel: string;
+  currentLut: string;
   strength: number;
-  gridActiveIndex: number;
-  onSlotChange: (slot: number) => void;
-  handleSelectLut: (id: string) => void;
-  handleStrengthChange: (value: number) => void;
-  apply: (ids: string[]) => void;
+  portrait: PortraitControl;
+  canUndo: boolean;
+  canRedo: boolean;
+  syncCount: number;
+  onSelectLut: (id: string) => void;
+  onStrengthChange: (value: number) => void;
+  onStrengthCommit: (value: number) => void;
+  onPortraitChange: (value: boolean) => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  onSync: () => void;
 }) {
   const [filterGroup, setFilterGroup] = useState("all");
   const [scene, setScene] = useState<LutScene>("all");
@@ -81,237 +74,234 @@ export function FilterInspector({
       (filterGroup === "all" || lut.group === filterGroup) &&
       matchesScene(lut, scene),
   );
+  const sections =
+    filterGroup === "all"
+      ? categories
+          .map((group) => ({
+            group,
+            items: shownLuts.filter((lut) => lut.group === group),
+          }))
+          .filter(({ items }) => items.length)
+      : [{ group: "", items: shownLuts }];
   if (!show) return null;
   return (
     <aside className="flex w-76 shrink-0 flex-col border-l border-border bg-sidebar">
-      <div className="border-b border-border px-4 py-3.5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5 text-xs font-semibold">
-            <SlidersHorizontal size={14} />
-            <span>滤镜与调整</span>
-          </div>
-          {currentInspectorLut && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
-              onClick={() => handleSelectLut("")}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              <RotateCcw size={11} /> 重置原图
-            </Button>
-          )}
-        </div>
-        <div className="mt-1.5 flex items-center justify-between rounded-md border border-border bg-background/60 px-2.5 py-1.5 text-xs">
+      <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border px-4">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <span className="shrink-0 text-xs font-semibold">滤镜与调整</span>
           <span
-            className="truncate text-muted-foreground"
-            title={targetDescription}
+            className="truncate text-xs text-muted-foreground"
+            title={targetLabel}
           >
-            目标：
-            <strong className="font-medium text-foreground">
-              {targetDescription}
-            </strong>
-          </span>
-          <span className="ml-2 shrink-0 text-xs text-emerald-400">
-            {previewPending
-              ? "预览未应用"
-              : view === "library"
-                ? "显示已应用效果"
-                : "已应用"}
+            {targetLabel}
           </span>
         </div>
-        <p className="mt-2 text-xs text-muted-foreground">
-          {view === "compare"
-            ? "应用使用右侧滤镜；导出保存当前选中的视图。"
-            : "参数以首张已选照片为准；应用后更新照片，导出所选使用已应用效果。"}
-        </p>
-        {view === "compare" && mode === "grid" && (
-          <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-            <span>当前联动槽位：</span>
-            <div className="flex gap-1">
-              {[0, 1, 2].map((slot) => (
-                <button
-                  key={slot}
-                  onClick={() => onSlotChange(slot)}
-                  className={`rounded px-2 py-1.5 text-xs font-medium ${gridActiveIndex === slot + 1 ? "bg-foreground text-background" : "bg-secondary text-muted-foreground hover:text-foreground"}`}
+        <div className="flex shrink-0 items-center">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="撤销"
+            title={`撤销（${mod}Z）`}
+            disabled={!canUndo}
+            onClick={onUndo}
+            className="text-muted-foreground"
+          >
+            <Undo2 size={13} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="重做"
+            title={`重做（${mod}⇧Z）`}
+            disabled={!canRedo}
+            onClick={onRedo}
+            className="text-muted-foreground"
+          >
+            <Redo2 size={13} />
+          </Button>
+        </div>
+      </div>
+
+      {disabled ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-10 text-center">
+          <SquareCheck size={18} className="text-muted-foreground" />
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            勾选照片后，点击滤镜即可应用到所选照片。
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="flex min-h-0 flex-1 flex-col px-3 pt-3">
+            <div className="relative">
+              <Search
+                size={14}
+                className="absolute top-2.5 left-2.5 text-muted-foreground"
+              />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="搜索滤镜名称"
+                className="h-8 pr-8 pl-8"
+              />
+              {search && (
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  type="button"
+                  aria-label="清空搜索"
+                  onClick={() => setSearch("")}
+                  className="absolute top-0.5 right-0.5 text-muted-foreground hover:text-foreground"
                 >
-                  槽位 {slot + 1}
-                </button>
+                  <X size={13} />
+                </Button>
+              )}
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <Select
+                value={scene}
+                onValueChange={(val) => {
+                  if (val) setScene(val as LutScene);
+                }}
+              >
+                <SelectTrigger
+                  aria-label="适用场景"
+                  size="sm"
+                  title="场景为精选推荐，未标注的滤镜可在「全部场景」中查看"
+                >
+                  <SelectValue>
+                    {(val: LutScene) => sceneLabels[val]}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(sceneLabels) as LutScene[]).map((item) => (
+                    <SelectItem key={item} value={item}>
+                      {sceneLabels[item]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={filterGroup}
+                onValueChange={(val) => {
+                  if (val) setFilterGroup(val);
+                }}
+              >
+                <SelectTrigger aria-label="滤镜分类" size="sm">
+                  <SelectValue>
+                    {(val: string) =>
+                      val === "all"
+                        ? `全部类别 (${luts.length})`
+                        : groupLabel(val)
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部类别 ({luts.length})</SelectItem>
+                  <SelectSeparator />
+                  {categories.map((cat) => (
+                    <SelectItem key={cat} value={cat}>
+                      {groupLabel(cat)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="-mx-1 mt-2 min-h-0 flex-1 space-y-px overflow-y-auto px-1 pb-2">
+              <button
+                className={`filter-item ${!currentLut ? "filter-active" : ""}`}
+                onClick={() => onSelectLut("")}
+              >
+                <span className="flex-1 text-left">无滤镜</span>
+                {!currentLut && <Check size={13} className="shrink-0" />}
+              </button>
+              {shownLuts.length === 0 && (
+                <p className="px-2 py-4 text-xs text-muted-foreground">
+                  没有符合条件的滤镜，请调整场景、分类或搜索词。
+                </p>
+              )}
+              {sections.map(({ group, items }) => (
+                <div
+                  key={group || "all"}
+                  role={group ? "group" : undefined}
+                  aria-label={group ? groupLabel(group) : undefined}
+                  className="space-y-px"
+                >
+                  {group && (
+                    <div className="sticky top-0 z-10 mt-2 border-t border-border bg-sidebar px-2.5 pt-2 pb-1 text-[11px] font-medium text-muted-foreground">
+                      {groupLabel(group)}
+                    </div>
+                  )}
+                  {items.map((lut) => (
+                    <button
+                      key={lut.id}
+                      className={`filter-item ${currentLut === lut.id ? "filter-active" : ""}`}
+                      onClick={() => onSelectLut(lut.id)}
+                    >
+                      <span className="min-w-0 flex-1 truncate text-left">
+                        {lutLabel(lut.name)}
+                      </span>
+                      {currentLut === lut.id && (
+                        <Check size={13} className="shrink-0" />
+                      )}
+                    </button>
+                  ))}
+                </div>
               ))}
             </div>
           </div>
-        )}
-      </div>
-      <div className="flex min-h-0 flex-1 flex-col px-4 py-3">
-        <div className="relative">
-          <Search
-            size={14}
-            className="absolute top-3 left-3 text-muted-foreground"
-          />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜索滤镜名称"
-            className="pr-9 pl-9"
-          />
-          {search && (
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              type="button"
-              aria-label="清空搜索"
-              onClick={() => setSearch("")}
-              className="absolute top-1 right-1 text-muted-foreground hover:text-foreground"
+
+          <div className="shrink-0 space-y-3 border-t border-border px-4 py-3">
+            <div
+              onDoubleClick={() => {
+                if (currentLut) onStrengthCommit(100);
+              }}
+              title="双击恢复 100%"
             >
-              <X size={13} />
-            </Button>
-          )}
-        </div>
-        <div className="mt-2.5">
-          <Select
-            value={scene}
-            onValueChange={(val) => {
-              if (val) setScene(val as LutScene);
-            }}
-          >
-            <SelectTrigger aria-label="适用场景">
-              <SelectValue>{(val: LutScene) => sceneLabels[val]}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {(Object.keys(sceneLabels) as LutScene[]).map((item) => (
-                <SelectItem key={item} value={item}>
-                  {sceneLabels[item]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <p className="mt-1 text-xs text-muted-foreground">
-          场景为精选推荐，其余滤镜可在全部场景中查看。
-        </p>
-        <div className="mt-2.5">
-          <Select
-            value={filterGroup}
-            onValueChange={(val) => {
-              if (!val) return;
-              setFilterGroup(val);
-            }}
-          >
-            <SelectTrigger aria-label="滤镜分类">
-              <SelectValue>
-                {(val: string) =>
-                  val === "all" ? `全部类别 (${luts.length})` : groupLabel(val)
-                }
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">全部类别 ({luts.length})</SelectItem>
-              <SelectSeparator />
-              {categories.map((cat) => (
-                <SelectItem key={cat} value={cat}>
-                  {groupLabel(cat)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="mt-3 min-h-0 flex-1 space-y-0.5 overflow-y-auto pr-0.5">
-          <button
-            className={`filter-item ${!currentInspectorLut ? "filter-active" : ""}`}
-            onClick={() => handleSelectLut("")}
-          >
-            <span className="filter-swatch bg-gradient-to-br from-zinc-200 to-zinc-600" />
-            <span>原图</span>
-            {!currentInspectorLut && <Check size={13} className="ml-auto" />}
-          </button>
-          {shownLuts.length === 0 && (
-            <p className="px-2 py-4 text-xs text-muted-foreground">
-              没有符合条件的滤镜，请调整场景、分类或搜索词。
-            </p>
-          )}
-          {shownLuts.map((lut) => (
-            <button
-              key={lut.id}
-              className={`filter-item ${currentInspectorLut === lut.id ? "filter-active" : ""}`}
-              onClick={() => handleSelectLut(lut.id)}
-            >
-              <span
-                className={`filter-swatch flex items-center justify-center bg-gradient-to-br ${swatchGradient(lut.group)} text-[9px] font-semibold tracking-tighter text-white/90 shadow-inner`}
-              >
-                LUT
-              </span>
-              <div className="min-w-0 flex-1 text-left">
-                <div className="truncate">{lutLabel(lut.name)}</div>
-                {filterGroup === "all" && (
-                  <div className="truncate text-xs text-muted-foreground">
-                    {groupLabel(lut.group)}
-                  </div>
-                )}
+              <div className="mb-1 flex justify-between text-xs">
+                <span>滤镜强度</span>
+                <span className="tabular-nums text-muted-foreground">
+                  {strength}%
+                </span>
               </div>
-              {currentInspectorLut === lut.id && (
-                <Check size={13} className="shrink-0" />
-              )}
-            </button>
-          ))}
-        </div>
-        <div className="mt-3 border-t border-border pt-3">
-          <div className="mb-2 flex justify-between text-xs font-medium">
-            <span>滤镜强度</span>
-            <span className="tabular-nums text-muted-foreground">
-              {strength}%
-            </span>
-          </div>
-          <Slider
-            aria-label="滤镜强度"
-            min={0}
-            max={100}
-            step={1}
-            value={strength}
-            onValueChange={(val) => handleStrengthChange(val)}
-          />
-          <div className="mt-3 grid gap-1.5">
-            {view === "compare" ? (
-              <>
-                <Button
-                  size="sm"
-                  disabled={!activeId}
-                  onClick={() => activeId && apply([activeId])}
-                >
-                  应用到当前照片
-                </Button>
-                {selected.length > 0 && (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => apply(selected)}
-                  >
-                    应用到选中照片 ({selected.length})
-                  </Button>
-                )}
-              </>
-            ) : (
-              <>
-                <Button
-                  size="sm"
-                  disabled={!selected.length}
-                  onClick={() => apply(selected)}
-                >
-                  应用到选中照片 ({selected.length})
-                </Button>
-                {hasCurrentGroup && visibleIds.length > 0 && (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => apply(visibleIds)}
-                  >
-                    应用到当前分组 ({visibleIds.length})
-                  </Button>
-                )}
-              </>
+              <Slider
+                aria-label="滤镜强度"
+                min={0}
+                max={100}
+                step={1}
+                value={strength}
+                disabled={!currentLut}
+                onValueChange={onStrengthChange}
+                onValueCommitted={onStrengthCommit}
+              />
+            </div>
+            <label className="flex cursor-pointer items-center justify-between gap-3">
+              <span className="min-w-0">
+                <span className="block text-xs">人像优化</span>
+                <span className="block truncate text-[11px] text-muted-foreground">
+                  {portrait.hint}
+                </span>
+              </span>
+              <Switch
+                aria-label="人像优化"
+                checked={portrait.checked}
+                disabled={portrait.disabled}
+                onCheckedChange={onPortraitChange}
+              />
+            </label>
+            {syncCount > 0 && (
+              <Button
+                size="sm"
+                variant="secondary"
+                className="w-full"
+                onClick={onSync}
+              >
+                同步到已选照片 ({syncCount})
+              </Button>
             )}
           </div>
-        </div>
-      </div>
+        </>
+      )}
     </aside>
   );
 }

@@ -1,6 +1,7 @@
 import { RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { maxCardZoom, minCardZoom } from "@/hooks/useCardView";
 
 type Props = {
   label: string;
@@ -17,13 +18,13 @@ export function CardViewControls({
 }: Props) {
   return (
     <div
-      className="absolute top-2 right-2 flex items-center opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 gap-2 rounded-md border border-border bg-background/90 px-2 py-1 text-xs shadow-sm"
-      title="单独缩放此卡片，可与整体缩放叠加"
+      className="absolute top-2 right-2 flex items-center gap-2 rounded-md border border-border bg-background/90 px-2 py-1 text-xs opacity-0 shadow-sm transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+      title="滚轮缩放，拖动平移"
     >
       <Slider
         aria-label={`${label}缩放`}
-        min={1}
-        max={3}
+        min={minCardZoom}
+        max={maxCardZoom}
         step={0.1}
         value={zoom}
         onValueChange={onZoomChange}
@@ -33,7 +34,7 @@ export function CardViewControls({
         variant="ghost"
         size="xs"
         aria-label={`重置${label}视图`}
-        title="重置此卡片的缩放与位置"
+        title="重置缩放与位置"
         onClick={onReset}
         className="gap-1 px-1 tabular-nums"
       >

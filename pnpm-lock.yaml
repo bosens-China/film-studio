@@ -13,6 +13,9 @@ importers:
       "@fontsource-variable/geist":
         specifier: ^5.3.0
         version: 5.3.0
+      "@mediapipe/tasks-vision":
+        specifier: ^1.2.3
+        version: 1.2.3
       "@tailwindcss/vite":
         specifier: ^4.3.5
         version: 4.3.5(vite@8.3.8(@types/node@24.19.2)(jiti@2.7.0)(yaml@2.9.1))
@@ -448,6 +451,12 @@ packages:
     resolution:
       {
         integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==,
+      }
+
+  "@mediapipe/tasks-vision@1.2.3":
+    resolution:
+      {
+        integrity: sha512-sxJyfhbN+EamexhaaCmUlw7v8vWWMum7VDsORe6d4c8Dk/xlI4qiIgoSw9cE9hpvYhVRRVLIA8y605FbqWkNeQ==,
       }
 
   "@modelcontextprotocol/core@2.4.0":
@@ -3399,6 +3408,8 @@ snapshots:
     dependencies:
       "@jridgewell/resolve-uri": 3.1.2
       "@jridgewell/sourcemap-codec": 1.6.0
+
+  "@mediapipe/tasks-vision@1.2.3": {}
 
   "@modelcontextprotocol/core@2.4.0":
     dependencies:

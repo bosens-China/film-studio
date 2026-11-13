@@ -1,0 +1,10 @@
+MediaPipe Tasks Vision 1.2.3 (Apache-2.0)
+https://www.npmjs.com/package/@mediapipe/tasks-vision/v/1.2.3
+vision_wasm_module_internal.js   d29996249490361715c769c6a49b43ad47e6ac9a28a8e8bce8d02b238e897851
+vision_wasm_module_internal.wasm a269e84b12aefc93c9d6a4d62b01f41e5434a9fa941533bb8e75b1e3d1669e46
+
+MediaPipe Face Landmarker float16 model
+https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
+face_landmarker.task 64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff
+
+MediaPipe LICENSE: https://github.com/google-ai-edge/mediapipe/blob/master/LICENSE
