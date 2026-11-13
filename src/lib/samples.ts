@@ -51,5 +51,8 @@ export async function fetchSampleFile(sample: SamplePhotoMeta): Promise<File> {
   const response = await fetch(sample.url);
   if (!response.ok) throw new Error(`示例图片加载失败: ${sample.title}`);
   const blob = await response.blob();
-  return new File([blob], sample.filename, { type: blob.type || "image/jpeg" });
+  return new File([blob], sample.filename, {
+    type: blob.type || "image/jpeg",
+    lastModified: 0,
+  });
 }

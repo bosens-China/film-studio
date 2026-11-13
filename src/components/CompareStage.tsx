@@ -57,6 +57,20 @@ export function CompareStage({
     consumeDrag,
   } = cardView;
   const showPortrait = grade.portrait && !!active.faces;
+  const format =
+    active.file.type.slice(6).split("+")[0].toUpperCase() ||
+    active.file.name.split(".").pop()?.toUpperCase() ||
+    "未知";
+  const size =
+    active.file.size >= 1_000_000
+      ? `${(active.file.size / 1_000_000).toFixed(1)} MB`
+      : `${Math.ceil(active.file.size / 1_000)} KB`;
+  const modified =
+    active.file.lastModified > 0
+      ? new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium" }).format(
+          active.file.lastModified,
+        )
+      : null;
   return (
     <>
       <div
@@ -254,6 +268,18 @@ export function CompareStage({
       </div>
 
       <PhotoFilmstrip activeId={active.id} openPhoto={openPhoto} />
+      <footer
+        aria-label="原图文件信息"
+        className="flex h-9 shrink-0 items-center gap-4 overflow-x-auto border-t border-border bg-sidebar px-5 text-xs whitespace-nowrap text-muted-foreground"
+      >
+        <span className="font-medium text-foreground">原图信息</span>
+        <span>
+          尺寸 {active.width} × {active.height} px
+        </span>
+        <span>大小 {size}</span>
+        <span>格式 {format}</span>
+        {modified && <span>文件修改日期 {modified}</span>}
+      </footer>
     </>
   );
 }

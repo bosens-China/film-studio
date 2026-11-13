@@ -64,10 +64,13 @@ export function usePhotoFiles({
       }
       try {
         const image = await createImageBitmap(file);
+        const { width, height } = image;
         image.close();
         added.push({
           id: crypto.randomUUID(),
           file,
+          width,
+          height,
           group: assignGroup,
           grade: { ...original },
         });
@@ -105,10 +108,13 @@ export function usePhotoFiles({
       for (const item of items) {
         const file = await fetchSampleFile(item);
         const image = await createImageBitmap(file);
+        const { width, height } = image;
         image.close();
         added.push({
           id: crypto.randomUUID(),
           file,
+          width,
+          height,
           group: sampleGroupId,
           grade: { ...original },
         });

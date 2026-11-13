@@ -3,6 +3,8 @@ import type { Grade } from "./renderer";
 export type Photo = {
   id: string;
   file: File;
+  width: number;
+  height: number;
   group: string;
   grade: Grade;
   /** Usable faces found on import; undefined while detection is running. */
