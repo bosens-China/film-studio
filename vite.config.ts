@@ -13,5 +13,5 @@ export default defineConfig({
   ],
   optimizeDeps: { include: ["@mediapipe/tasks-vision"] },
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
-  server: { port: 10107 },
+  server: { host: "127.0.0.1", port: 10107 },
 });
