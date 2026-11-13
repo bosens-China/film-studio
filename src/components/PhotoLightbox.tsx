@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { PhotoPreview } from "@/components/PhotoPreview";
+import { maxCardZoom } from "@/hooks/useCardView";
 import { groupLabel, lutLabel } from "@/lib/lut-labels";
 import { luts, categories, nameOf } from "@/lib/luts";
 import type { Grade } from "@/lib/renderer";
@@ -43,7 +44,7 @@ export function PhotoLightbox({
     event.preventDefault();
     const delta = event.deltaY < 0 ? 0.15 : -0.15;
     setLightboxZoom((prev) =>
-      Math.min(4, Math.max(0.5, Number((prev + delta).toFixed(2)))),
+      Math.min(maxCardZoom, Math.max(0.5, Number((prev + delta).toFixed(2)))),
     );
   }
 
@@ -142,7 +143,7 @@ export function PhotoLightbox({
                 <Slider
                   aria-label="弹窗缩放"
                   min={0.5}
-                  max={4}
+                  max={maxCardZoom}
                   step={0.1}
                   value={lightboxZoom}
                   onValueChange={(val) => setLightboxZoom(val)}
@@ -168,7 +169,7 @@ export function PhotoLightbox({
                   aria-label="放大"
                   onClick={() =>
                     setLightboxZoom((z) =>
-                      Math.min(4, Number((z + 0.25).toFixed(2))),
+                      Math.min(maxCardZoom, Number((z + 0.25).toFixed(2))),
                     )
                   }
                   className="text-muted-foreground hover:text-foreground"

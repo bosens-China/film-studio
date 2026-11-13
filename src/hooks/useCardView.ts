@@ -11,7 +11,7 @@ export const defaultCardTransform: CardTransform = {
 };
 
 export const minCardZoom = 1;
-export const maxCardZoom = 4;
+export const maxCardZoom = 5;
 
 const linkedKey = "__linked";
 

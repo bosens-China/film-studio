@@ -129,6 +129,8 @@ async function process(
         float luma(vec3 c){return dot(c,vec3(0.2126,0.7152,0.0722));}
         vec3 toYCC(vec3 c){float y=dot(c,vec3(0.299,0.587,0.114));return vec3(y,(c.b-y)*0.564+0.5,(c.r-y)*0.713+0.5);}
         vec3 fromYCC(vec3 v){float cb=v.y-0.5;float cr=v.z-0.5;return vec3(v.x+1.403*cr,v.x-0.344*cb-0.714*cr,v.x+1.773*cb);}
+        float skinTone(vec3 y){return (1.0-smoothstep(0.06,0.11,abs(y.y-0.40)))
+          *(1.0-smoothstep(0.05,0.09,abs(y.z-0.60)))*smoothstep(0.08,0.2,y.x);}
         void main(){
           vec4 c=texture(image,uv);
           vec3 m=texture(faceMask,uv).rgb;
@@ -138,14 +140,20 @@ async function process(
             vec3 soft=(textureLod(image,uv+o,level).rgb+textureLod(image,uv-o,level).rgb
               +textureLod(image,uv+vec2(o.x,-o.y),level).rgb+textureLod(image,uv+vec2(-o.x,o.y),level).rgb)*0.25;
             float even=1.0-smoothstep(0.03,0.10,abs(luma(c.rgb)-luma(soft)));
-            c.rgb=mix(c.rgb,soft,smoothAmount*even*m.r);
+            // Blemishes resemble edges; release dark or red skin spots from that guard.
+            float difference=luma(soft)-luma(c.rgb);
+            float spot=max(smoothstep(0.015,0.045,difference),
+              smoothstep(0.015,0.05,(c.r-c.g)-(soft.r-soft.g)));
+            float edge=1.0-smoothstep(0.10,0.18,abs(difference));
+            // shortcut: local contrast can confuse moles with blemishes; use lesion segmentation if samples show that.
+            float tone=smoothstep(0.08,0.20,luma(soft));
+            c.rgb=mix(c.rgb,soft,max(smoothAmount*even,0.85*spot*edge*tone)*m.r);
           }
           float g=mix(gainGlobal,gainLocal,m.b);
           float l=max(luma(c.rgb),1e-4);
           c.rgb=min(c.rgb*(g/(1.0+l*(g-1.0))),1.0);
           vec3 y=toYCC(c.rgb);
-          float skin=(1.0-smoothstep(0.06,0.11,abs(y.y-0.40)))*(1.0-smoothstep(0.05,0.09,abs(y.z-0.60)))
-            *smoothstep(0.08,0.2,y.x)*max(m.r,m.b);
+          float skin=skinTone(y)*max(m.r,m.b);
           y.z-=max(y.z-0.585,0.0)*0.35*skin;
           c.rgb=clamp(fromYCC(y),0.0,1.0);
           vec3 coord=c.rgb*(63.0/64.0)+0.5/64.0;
@@ -235,13 +243,14 @@ async function process(
       gl.uniform1i(gl.getUniformLocation(program, "faceMask"), 2);
       const portrait = faces.length ? analyzePortrait(bitmap, faces) : null;
       const faceWidth = portrait?.faceWidth ?? 0;
-      // Retouching faces under ~120 source pixels is invisible; ramp in above that.
-      const smooth = Math.min(1, Math.max(0, (faceWidth - 120) / 160)) * 0.6;
+      const smooth = faceWidth
+        ? Math.max(0.15, Math.min(0.35, 24 / faceWidth))
+        : 0;
       const gain = portrait?.gain ?? 1;
       gl.uniform1f(gl.getUniformLocation(program, "smoothAmount"), smooth);
       gl.uniform1f(
         gl.getUniformLocation(program, "blurLevel"),
-        Math.max(1, Math.min(5, Math.log2(Math.max(faceWidth, 2) / 48))),
+        Math.max(2, Math.min(5, Math.log2(Math.max(faceWidth, 2) / 48))),
       );
       gl.uniform2f(
         gl.getUniformLocation(program, "texel"),

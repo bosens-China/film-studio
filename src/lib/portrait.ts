@@ -32,17 +32,12 @@ export function detectFaces(file: File): Promise<Face[]> {
           worker = undefined;
         };
         const bitmap = await createImageBitmap(file);
-        const width = bitmap.width;
         const id = ++nextId;
         const faces = await new Promise<Face[]>((resolve) => {
           pending.set(id, resolve);
           worker!.postMessage({ id, bitmap }, [bitmap]);
         });
-        return faces.filter(
-          (face) =>
-            face.length >= 467 &&
-            Math.abs(face[454].x - face[234].x) * width >= 80,
-        );
+        return faces.filter((face) => face.length >= 467);
       } catch (error) {
         console.warn("人像识别失败", error);
         return [];
@@ -122,6 +117,18 @@ export function faceMask(
     layerCtx.clearRect(0, 0, w, h);
     layerCtx.fillStyle = "rgb(255,255,0)";
     path(face, oval);
+    // Downward-looking faces need a little more forehead than the oval covers.
+    layerCtx.beginPath();
+    layerCtx.ellipse(
+      face[10].x * w,
+      face[10].y * h + fh * 0.02,
+      fw * 0.58,
+      fh * 0.26,
+      0,
+      0,
+      Math.PI * 2,
+    );
+    layerCtx.fill();
     layerCtx.fillStyle = "rgb(0,255,0)";
     for (const indices of [leftEye, rightEye, leftBrow, rightBrow, mouth])
       path(face, indices);
