@@ -56,7 +56,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                   检测到人脸时自动开启人像优化
                 </span>
                 <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
-                  导入后在本地识别人脸，开启轻度柔肤、去红和面部提亮。对之后导入的照片生效，每张照片仍可单独关闭。
+                  开启后对新导入的照片识别人脸并自动优化；关闭后仅在手动开启人像优化时识别。每张照片仍可单独调整。
                 </span>
               </span>
               <Switch

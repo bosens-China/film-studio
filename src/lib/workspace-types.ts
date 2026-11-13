@@ -7,8 +7,8 @@ export type Photo = {
   height: number;
   group: string;
   grade: Grade;
-  /** Usable faces found on import; undefined while detection is running. */
-  faces?: number;
+  /** Null until manually requested; undefined while automatic detection is running. */
+  faces?: number | null;
   /** The user has set portrait retouching explicitly, so auto-enable must not override it. */
   portraitTouched?: boolean;
 };

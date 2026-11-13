@@ -1,4 +1,5 @@
-import type { Dispatch, SetStateAction } from "react";
+import { useState, type Dispatch, type SetStateAction } from "react";
+import { detectFaces } from "@/lib/portrait";
 import type { Grade } from "@/lib/renderer";
 import type { CompareMode } from "@/lib/workspace-types";
 import { useWorkspaceStore } from "@/stores/workspace";
@@ -29,6 +30,7 @@ export function usePhotoGrade({
   const selected = useWorkspaceStore((s) => s.selected);
   const photos = useWorkspaceStore((s) => s.photos);
   const applyGrade = useWorkspaceStore((s) => s.applyGrade);
+  const [detectingPortrait, setDetectingPortrait] = useState(false);
   const targets =
     view === "library" ? selected : activeId ? [activeId] : ([] as string[]);
 
@@ -52,10 +54,29 @@ export function usePhotoGrade({
     return applyGradeToIds(targets, { strength });
   }
 
-  function setPortrait(portrait: boolean) {
+  async function setPortrait(portrait: boolean) {
+    if (portrait) {
+      const unknown = photos.filter(
+        (photo) => targets.includes(photo.id) && photo.faces === null,
+      );
+      if (unknown.length) {
+        setDetectingPortrait(true);
+        try {
+          for (const photo of unknown) {
+            const faces = await detectFaces(photo.file);
+            useWorkspaceStore
+              .getState()
+              .setFaces(photo.id, faces.length, false);
+          }
+        } finally {
+          setDetectingPortrait(false);
+        }
+      }
+    }
+    const currentPhotos = useWorkspaceStore.getState().photos;
     return applyGradeToIds(
       portrait
-        ? targets.filter((id) => photos.find((p) => p.id === id)?.faces)
+        ? targets.filter((id) => currentPhotos.find((p) => p.id === id)?.faces)
         : targets,
       { portrait },
     );
@@ -73,6 +94,7 @@ export function usePhotoGrade({
     selectLut,
     commitStrength,
     setPortrait,
+    detectingPortrait,
     syncToSelected,
   };
 }

@@ -52,16 +52,26 @@ function ownsArrowKeys(target: EventTarget | null) {
   );
 }
 
-function portraitControl(targets: Photo[]): PortraitControl {
+function portraitControl(
+  targets: Photo[],
+  manuallyDetecting: boolean,
+): PortraitControl {
+  if (manuallyDetecting)
+    return { checked: false, disabled: true, hint: "正在识别人脸…" };
   const detecting = targets.some((p) => p.faces === undefined);
+  const undetected = targets.some((p) => p.faces === null);
   const withFaces = targets.filter((p) => p.faces);
   if (!withFaces.length)
     return {
       checked: false,
-      disabled: true,
-      hint: detecting ? "正在识别人脸…" : "未检测到人脸",
+      disabled: !undetected,
+      hint: undetected
+        ? "开启后识别人脸"
+        : detecting
+          ? "正在识别人脸…"
+          : "未检测到人脸",
     };
-  const checked = withFaces.every((p) => p.grade.portrait);
+  const checked = !undetected && withFaces.every((p) => p.grade.portrait);
   if (targets.length === 1) {
     const [photo] = withFaces;
     return {
@@ -75,7 +85,7 @@ function portraitControl(targets: Photo[]): PortraitControl {
   return {
     checked,
     disabled: false,
-    hint: `${withFaces.length} / ${targets.length} 张含人脸${detecting ? " · 识别中" : ""}`,
+    hint: `${withFaces.length} / ${targets.length} 张含人脸${undetected ? " · 其余待识别" : detecting ? " · 识别中" : ""}`,
   };
 }
 
@@ -259,6 +269,7 @@ export default function App() {
     selectLut,
     commitStrength,
     setPortrait,
+    detectingPortrait,
     syncToSelected,
   } = usePhotoGrade({
     view,
@@ -544,6 +555,7 @@ export default function App() {
             strength={viewGrade.strength}
             portrait={portraitControl(
               view === "compare" ? (active ? [active] : []) : selectedPhotos,
+              detectingPortrait,
             )}
             canUndo={canUndo}
             canRedo={canRedo}
@@ -566,7 +578,11 @@ export default function App() {
               compareAfterEdit(commitStrength(value));
               setDragStrength(null);
             }}
-            onPortraitChange={(on) => compareAfterEdit(setPortrait(on))}
+            onPortraitChange={(on) => {
+              void setPortrait(on).then((changed) => {
+                if (lastRouteId.current === routeId) compareAfterEdit(changed);
+              });
+            }}
             onUndo={undo}
             onRedo={redo}
             onSync={() => syncToSelected(appliedGrade)}

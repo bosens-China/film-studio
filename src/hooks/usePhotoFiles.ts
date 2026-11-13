@@ -57,6 +57,7 @@ export function usePhotoFiles({
           : group;
     const added: Photo[] = [];
     const failed: string[] = [];
+    const autoPortrait = useSettingsStore.getState().autoPortrait;
     for (const file of list) {
       if (!file.type.startsWith("image/")) {
         failed.push(file.name);
@@ -73,13 +74,14 @@ export function usePhotoFiles({
           height,
           group: assignGroup,
           grade: { ...original },
+          faces: autoPortrait ? undefined : null,
         });
       } catch {
         failed.push(file.name);
       }
     }
     setPhotos((prev) => [...prev, ...added]);
-    void detectPortraits(added);
+    if (autoPortrait) void detectPortraits(added);
     if (!activeId && added[0]) setActiveId(added[0].id);
     if (failed.length) setError(`以下文件无法读取：${failed.join("、")}`);
     setBusy("");
@@ -105,6 +107,7 @@ export function usePhotoFiles({
         }
       }
       const added: Photo[] = [];
+      const autoPortrait = useSettingsStore.getState().autoPortrait;
       for (const item of items) {
         const file = await fetchSampleFile(item);
         const image = await createImageBitmap(file);
@@ -117,10 +120,11 @@ export function usePhotoFiles({
           height,
           group: sampleGroupId,
           grade: { ...original },
+          faces: autoPortrait ? undefined : null,
         });
       }
       setPhotos((prev) => [...prev, ...added]);
-      void detectPortraits(added);
+      if (autoPortrait) void detectPortraits(added);
       if (!activeId && added[0]) setActiveId(added[0].id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "示例图片加载失败");

@@ -64,7 +64,7 @@ export function WorkspaceToolbar({
   return (
     <div className="flex min-h-11 shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-border px-5 py-1.5">
       <div
-        className={`flex min-w-0 items-center gap-3 ${view === "compare" ? "w-full" : "flex-1"}`}
+        className={`flex min-w-0 items-center gap-3 ${view === "library" ? "flex-1" : ""}`}
       >
         {view === "compare" && (
           <Button
@@ -79,18 +79,20 @@ export function WorkspaceToolbar({
             <span>返回列表</span>
           </Button>
         )}
-        <h1 className="shrink-0 truncate text-sm font-semibold tracking-tight">
-          {view === "library"
-            ? group === "all"
-              ? "全部照片"
-              : group === "ungrouped"
-                ? "未分组"
-                : currentGroupObj?.name
-            : "照片对比"}
-        </h1>
-        <span className="min-w-0 truncate text-xs text-muted-foreground tabular-nums">
-          {view === "library" ? `${visible.length} 张照片` : active?.file.name}
-        </span>
+        {view === "library" && (
+          <>
+            <h1 className="shrink-0 truncate text-sm font-semibold tracking-tight">
+              {group === "all"
+                ? "全部照片"
+                : group === "ungrouped"
+                  ? "未分组"
+                  : currentGroupObj?.name}
+            </h1>
+            <span className="min-w-0 truncate text-xs text-muted-foreground tabular-nums">
+              {visible.length} 张照片
+            </span>
+          </>
+        )}
       </div>
 
       {view === "library" && photos.length > 0 && (
@@ -165,7 +167,7 @@ export function WorkspaceToolbar({
       )}
 
       {view === "compare" && active && (
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2">
           <div className="flex items-center gap-0.5 rounded-lg bg-secondary/60 p-0.5">
             {modes.map(([value, label, Icon]) => (
               <Button

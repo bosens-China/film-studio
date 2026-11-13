@@ -272,7 +272,13 @@ export function CompareStage({
         aria-label="原图文件信息"
         className="flex h-9 shrink-0 items-center gap-4 overflow-x-auto border-t border-border bg-sidebar px-5 text-xs whitespace-nowrap text-muted-foreground"
       >
-        <span className="font-medium text-foreground">原图信息</span>
+        <h1 className="shrink-0 font-semibold text-foreground">照片对比</h1>
+        <span
+          className="max-w-64 shrink-0 truncate font-medium text-foreground"
+          title={active.file.name}
+        >
+          {active.file.name}
+        </span>
         <span>
           尺寸 {active.width} × {active.height} px
         </span>
